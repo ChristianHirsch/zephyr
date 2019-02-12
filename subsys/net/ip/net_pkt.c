@@ -43,13 +43,21 @@ LOG_MODULE_REGISTER(net_pkt, CONFIG_NET_PKT_LOG_LEVEL);
 #include "tcp_internal.h"
 
 /* Find max header size of IP protocol (IPv4 or IPv6) */
-#if defined(CONFIG_NET_IPV6) || defined(CONFIG_NET_RAW_MODE)
+#if defined(CONFIG_NET_IPV6) || defined(CONFIG_NET_RAW_MODE) || \
+	defined(CONFIG_NET_SOCKETS_PACKET)
 #define MAX_IP_PROTO_LEN NET_IPV6H_LEN
 #else
 #if defined(CONFIG_NET_IPV4)
 #define MAX_IP_PROTO_LEN NET_IPV4H_LEN
 #else
+#if defined(CONFIG_NET_SOCKETS_CAN)
+/* TODO: Use CAN MTU here instead of hard coded value. There was
+ * weird circular dependency issue so this needs more TLC.
+ */
+#define MAX_IP_PROTO_LEN 8
+#else
 #error "Either IPv6 or IPv4 needs to be selected."
+#endif /* SOCKETS_CAN */
 #endif /* IPv4 */
 #endif /* IPv6 */
 
@@ -60,8 +68,12 @@ LOG_MODULE_REGISTER(net_pkt, CONFIG_NET_PKT_LOG_LEVEL);
 #if defined(CONFIG_NET_UDP)
 #define MAX_NEXT_PROTO_LEN NET_UDPH_LEN
 #else
+#if defined(CONFIG_NET_SOCKETS_CAN)
+#define MAX_NEXT_PROTO_LEN 0
+#else
 /* If no TCP and no UDP, apparently we still want pings to work. */
 #define MAX_NEXT_PROTO_LEN NET_ICMPH_LEN
+#endif /* SOCKETS_CAN */
 #endif /* UDP */
 #endif /* TCP */
 
@@ -563,10 +575,10 @@ static struct net_pkt *net_pkt_get(struct k_mem_slab *slab,
 #endif /* CONFIG_NET_CONTEXT_PRIORITY */
 
 	if (slab != &rx_pkts) {
-		uint16_t iface_len, data_len = 0U;
+		u16_t iface_len, data_len;
 		enum net_ip_protocol proto;
 
-		iface_len = net_if_get_mtu(iface);
+		iface_len = data_len = net_if_get_mtu(iface);
 
 		if (IS_ENABLED(CONFIG_NET_IPV6) && family == AF_INET6) {
 			data_len = max(iface_len, NET_IPV6_MTU);
@@ -2183,7 +2195,13 @@ struct net_pkt *net_pkt_clone(struct net_pkt *pkt, s32_t timeout)
 
 	net_pkt_set_ip_hdr_len(clone, net_pkt_ip_hdr_len(pkt));
 	net_pkt_set_vlan_tag(clone, net_pkt_vlan_tag(pkt));
+	net_pkt_set_appdata(clone, NULL);
 	net_pkt_set_appdatalen(clone, net_pkt_appdatalen(pkt));
+	net_pkt_set_transport_proto(clone, net_pkt_transport_proto(pkt));
+
+	net_pkt_set_timestamp(clone, net_pkt_timestamp(pkt));
+	net_pkt_set_priority(clone, net_pkt_priority(pkt));
+	net_pkt_set_orig_iface(clone, net_pkt_orig_iface(pkt));
 
 	net_pkt_set_family(clone, net_pkt_family(pkt));
 

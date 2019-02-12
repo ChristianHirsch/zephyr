@@ -24,7 +24,7 @@
 	#error too small SHELL_PRINTF_BUFF_SIZE
 #endif
 
-#define SHELL_MSG_COMMAND_NOT_FOUND	": command not found"
+#define SHELL_MSG_CMD_NOT_FOUND		": command not found"
 
 #define SHELL_INIT_OPTION_PRINTER	(NULL)
 
@@ -503,14 +503,17 @@ static void partial_autocomplete(const struct shell *shell,
 }
 
 static int exec_cmd(const struct shell *shell, size_t argc, char **argv,
-		    struct shell_static_entry help_entry)
+		    const struct shell_static_entry *help_entry)
 {
 	int ret_val = 0;
 
 	if (shell->ctx->active_cmd.handler == NULL) {
-		if ((help_entry.help) && IS_ENABLED(CONFIG_SHELL_HELP)) {
-			if (help_entry.help != shell->ctx->active_cmd.help) {
-				shell->ctx->active_cmd = help_entry;
+		if ((help_entry != NULL) && IS_ENABLED(CONFIG_SHELL_HELP)) {
+			if (help_entry->help == NULL) {
+				return -ENOEXEC;
+			}
+			if (help_entry->help != shell->ctx->active_cmd.help) {
+				shell->ctx->active_cmd = *help_entry;
 			}
 			shell_help(shell);
 			return SHELL_CMD_HELP_PRINTED;
@@ -561,7 +564,7 @@ static int execute(const struct shell *shell)
 	size_t cmd_lvl = SHELL_CMD_ROOT_LVL;
 	size_t cmd_with_handler_lvl = 0;
 	bool wildcard_found = false;
-	size_t cmd_idx;
+	size_t cmd_idx = 0;
 	size_t argc;
 	char quote;
 
@@ -595,29 +598,13 @@ static int execute(const struct shell *shell)
 		return -ENOEXEC;
 	}
 
-	/*  Searching for a matching root command. */
-	p_cmd = shell_root_cmd_find(argv[0]);
-	if (p_cmd == NULL) {
-		shell_fprintf(shell, SHELL_ERROR, "%s%s\n", argv[0],
-			      SHELL_MSG_COMMAND_NOT_FOUND);
-		return -ENOEXEC;
-	}
-
-	/* checking if root command has a handler */
-	shell->ctx->active_cmd = *p_cmd->u.entry;
-	help_entry = *p_cmd->u.entry;
-
-	p_cmd = p_cmd->u.entry->subcmd;
-	cmd_lvl++;
-	cmd_idx = 0;
-
 	/* Below loop is analyzing subcommands of found root command. */
 	while (true) {
 		if (cmd_lvl >= argc) {
 			break;
 		}
 
-		if (IS_ENABLED(CONFIG_SHELL_HELP) &&
+		if (IS_ENABLED(CONFIG_SHELL_HELP) && (cmd_lvl > 0) &&
 		    (!strcmp(argv[cmd_lvl], "-h") ||
 		     !strcmp(argv[cmd_lvl], "--help"))) {
 			/* Command called with help option so it makes no sense
@@ -634,7 +621,7 @@ static int execute(const struct shell *shell)
 			return -ENOEXEC;
 		}
 
-		if (IS_ENABLED(CONFIG_SHELL_WILDCARD)) {
+		if (IS_ENABLED(CONFIG_SHELL_WILDCARD) && (cmd_lvl > 0)) {
 			enum shell_wildcard_status status;
 
 			status = shell_wildcard_process(shell, p_cmd,
@@ -660,31 +647,32 @@ static int execute(const struct shell *shell)
 			      &d_entry);
 
 		if ((cmd_idx == 0) || (p_static_entry == NULL)) {
+			if (cmd_lvl == 0) {
+				shell_error(shell, "%s%s", argv[0],
+					    SHELL_MSG_CMD_NOT_FOUND);
+				return -ENOEXEC;
+			}
 			break;
 		}
 
 		if (strcmp(argv[cmd_lvl], p_static_entry->syntax) == 0) {
 			/* checking if command has a handler */
 			if (p_static_entry->handler != NULL) {
-				if (IS_ENABLED(CONFIG_SHELL_WILDCARD)) {
-					if (wildcard_found) {
-						shell_op_cursor_end_move(shell);
-						shell_op_cond_next_line(shell);
+				if (IS_ENABLED(CONFIG_SHELL_WILDCARD) &&
+				    (wildcard_found)) {
+					shell_op_cursor_end_move(shell);
+					shell_op_cond_next_line(shell);
 
-						/* An error occurred, fnmatch
-						 * argument cannot be followed
-						 * by argument with a handler to
-						 * avoid multiple function
-						 * calls.
-						 */
-						shell_fprintf(shell,
-							SHELL_ERROR,
-							"Error: requested"
-							" multiple function"
-							" executions\n");
+					/* An error occurred, fnmatch  argument
+					 * cannot be followed by argument with
+					 * a handler to avoid multiple function
+					 * calls.
+					 */
+					shell_fprintf(shell, SHELL_ERROR,
+						"Error: requested multiple"
+						" function executions\n");
 
-						return -ENOEXEC;
-					}
+					return -ENOEXEC;
 				}
 
 				shell->ctx->active_cmd = *p_static_entry;
@@ -701,7 +689,7 @@ static int execute(const struct shell *shell)
 		}
 	}
 
-	if (IS_ENABLED(CONFIG_SHELL_WILDCARD)) {
+	if (IS_ENABLED(CONFIG_SHELL_WILDCARD) && wildcard_found) {
 		shell_wildcard_finalize(shell);
 		/* cmd_buffer has been overwritten by function finalize function
 		 * with all expanded commands. Hence shell_make_argv needs to
@@ -714,7 +702,7 @@ static int execute(const struct shell *shell)
 
 	/* Executing the deepest found handler. */
 	return exec_cmd(shell, argc - cmd_with_handler_lvl,
-			&argv[cmd_with_handler_lvl], help_entry);
+			&argv[cmd_with_handler_lvl], &help_entry);
 }
 
 static void tab_handle(const struct shell *shell)
@@ -1066,8 +1054,6 @@ static void shell_log_process(const struct shell *shell)
 static int instance_init(const struct shell *shell, const void *p_config,
 			 bool use_colors)
 {
-	__ASSERT_NO_MSG(shell);
-	__ASSERT_NO_MSG(shell->ctx && shell->iface && shell->prompt);
 	__ASSERT_NO_MSG((shell->shell_flag == SHELL_FLAG_CRLF_DEFAULT) ||
 			(shell->shell_flag == SHELL_FLAG_OLF_CRLF));
 
@@ -1079,6 +1065,7 @@ static int instance_init(const struct shell *shell, const void *p_config,
 	}
 
 	memset(shell->ctx, 0, sizeof(*shell->ctx));
+	shell->ctx->prompt = shell->default_prompt;
 
 	history_init(shell);
 
@@ -1095,7 +1082,7 @@ static int instance_init(const struct shell *shell, const void *p_config,
 	shell->ctx->state = SHELL_STATE_INITIALIZED;
 	shell->ctx->vt100_ctx.cons.terminal_wid = SHELL_DEFAULT_TERMINAL_WIDTH;
 	shell->ctx->vt100_ctx.cons.terminal_hei = SHELL_DEFAULT_TERMINAL_HEIGHT;
-	shell->ctx->vt100_ctx.cons.name_len = shell_strlen(shell->prompt);
+	shell->ctx->vt100_ctx.cons.name_len = shell_strlen(shell->ctx->prompt);
 	flag_use_colors_set(shell, IS_ENABLED(CONFIG_SHELL_VT100_COLORS));
 
 	return 0;
@@ -1104,7 +1091,7 @@ static int instance_init(const struct shell *shell, const void *p_config,
 static int instance_uninit(const struct shell *shell)
 {
 	__ASSERT_NO_MSG(shell);
-	__ASSERT_NO_MSG(shell->ctx && shell->iface && shell->prompt);
+	__ASSERT_NO_MSG(shell->ctx && shell->iface);
 
 	int err;
 
@@ -1216,7 +1203,7 @@ int shell_init(const struct shell *shell, const void *transport_config,
 	       bool use_colors, bool log_backend, u32_t init_log_level)
 {
 	__ASSERT_NO_MSG(shell);
-	__ASSERT_NO_MSG(shell->ctx && shell->iface && shell->prompt);
+	__ASSERT_NO_MSG(shell->ctx && shell->iface && shell->default_prompt);
 
 	int err = instance_init(shell, transport_config, use_colors);
 
@@ -1256,7 +1243,7 @@ int shell_uninit(const struct shell *shell)
 int shell_start(const struct shell *shell)
 {
 	__ASSERT_NO_MSG(shell);
-	__ASSERT_NO_MSG(shell->ctx && shell->iface && shell->prompt);
+	__ASSERT_NO_MSG(shell->ctx && shell->iface && shell->default_prompt);
 
 	if (shell->ctx->state != SHELL_STATE_INITIALIZED) {
 		return -ENOTSUP;
@@ -1364,20 +1351,17 @@ void shell_fprintf(const struct shell *shell, enum shell_vt100_color color,
 	}
 }
 
-int shell_prompt_change(const struct shell *shell, char *prompt)
+int shell_prompt_change(const struct shell *shell, const char *prompt)
 {
-	u16_t len;
-
 	__ASSERT_NO_MSG(shell);
-	__ASSERT_NO_MSG(prompt);
 
-	len = shell_strlen(prompt);
-
-	if (len <= CONFIG_SHELL_PROMPT_LENGTH) {
-		memcpy(shell->prompt, prompt, len + 1); /* +1 for '\0' */
-		return 0;
+	if (prompt == NULL) {
+		return -EINVAL;
 	}
-	return -ENOMEM;
+	shell->ctx->prompt = prompt;
+	shell->ctx->vt100_ctx.cons.name_len = shell_strlen(prompt);
+
+	return 0;
 }
 
 void shell_help(const struct shell *shell)
