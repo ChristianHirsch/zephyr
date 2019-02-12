@@ -1,0 +1,15 @@
+# Kconfig.defconfig.nrf51822_CFAC - Nordic Semiconductor nRF51822 MCU
+#
+# Copyright (c) 2018 XXX
+# Copyright (c) 2016 Nordic Semiconductor ASA
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+if SOC_NRF51822_CFAC
+
+config SOC
+	string
+	default "nRF51822_CFAC"
+
+endif # SOC_NRF51822_CFAC

@@ -1,0 +1,19 @@
+# Kconfig - nRF51 Simblee board configuration
+#
+# Copyright (c) 2018 XXX.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_NRF51_SIMBLEE
+
+config BOARD
+	default "nrf51_simblee"
+
+if ADC
+
+config ADC_0
+        default y
+
+endif # ADC
+
+endif # BOARD_NRF51_SIMBLEE
