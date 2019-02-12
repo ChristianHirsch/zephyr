@@ -27,6 +27,21 @@ config NUM_IRQS
 	int
 	default 26
 
+config HAS_NORDIC_DRIVERS
+    default y
+
+config NRFX_TIMER1
+    default y
+
+config NRFX_TIMER2
+    default y
+
+config NRFX_TIMER3
+    default y
+
+config NRFX_GPIOTE
+    default y
+
 if SENSOR
 
 config TEMP_NRF5
