@@ -83,7 +83,7 @@ void rtc1_nrf_isr(void *arg)
 	}
 
 	irq_unlock(key);
-	z_clock_announce(dticks);
+	z_clock_announce(IS_ENABLED(CONFIG_TICKLESS_KERNEL) ? dticks : 1);
 }
 
 int z_clock_driver_init(struct device *device)
@@ -92,7 +92,7 @@ int z_clock_driver_init(struct device *device)
 
 	ARG_UNUSED(device);
 
-	clock = device_get_binding(CONFIG_CLOCK_CONTROL_NRF_K32SRC_DRV_NAME);
+	clock = device_get_binding(DT_NORDIC_NRF_CLOCK_0_LABEL "_32K");
 	if (!clock) {
 		return -1;
 	}

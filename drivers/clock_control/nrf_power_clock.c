@@ -276,7 +276,15 @@ static inline void power_event_cb(nrf_power_event_t event)
 }
 #endif
 
-static void _power_clock_isr(void *arg)
+/* Note: this function has public linkage, and MUST have this
+ * particular name.  The platform architecture itself doesn't care,
+ * but there is a test (tests/kernel/arm_irq_vector_table) that needs
+ * to find it to it can set it in a custom vector table.  Should
+ * probably better abstract that at some point (e.g. query and reset
+ * it by pointer at runtime, maybe?) so we don't have this leaky
+ * symbol.
+ */
+void nrf_power_clock_isr(void *arg)
 {
 	u8_t pof, hf_intenset, hf, lf_intenset, lf;
 #if NRF_CLOCK_HAS_CALIBRATION
@@ -436,8 +444,8 @@ static int _clock_control_init(struct device *dev)
 	 * NOTE: Currently the operations here are idempotent.
 	 */
 	IRQ_CONNECT(DT_NORDIC_NRF_CLOCK_0_IRQ_0,
-		    CONFIG_CLOCK_CONTROL_NRF_IRQ_PRIORITY,
-		    _power_clock_isr, 0, 0);
+		    DT_NORDIC_NRF_CLOCK_0_IRQ_0_PRIORITY,
+		    nrf_power_clock_isr, 0, 0);
 
 	irq_enable(DT_NORDIC_NRF_CLOCK_0_IRQ_0);
 
@@ -451,7 +459,7 @@ static const struct clock_control_driver_api _m16src_clock_control_api = {
 };
 
 DEVICE_AND_API_INIT(clock_nrf5_m16src,
-		    CONFIG_CLOCK_CONTROL_NRF_M16SRC_DRV_NAME,
+		    DT_NORDIC_NRF_CLOCK_0_LABEL "_16M",
 		    _clock_control_init, NULL, NULL, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
 		    &_m16src_clock_control_api);
@@ -463,7 +471,7 @@ static const struct clock_control_driver_api _k32src_clock_control_api = {
 };
 
 DEVICE_AND_API_INIT(clock_nrf5_k32src,
-		    CONFIG_CLOCK_CONTROL_NRF_K32SRC_DRV_NAME,
+		    DT_NORDIC_NRF_CLOCK_0_LABEL "_32K",
 		    _clock_control_init, NULL, NULL, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
 		    &_k32src_clock_control_api);
