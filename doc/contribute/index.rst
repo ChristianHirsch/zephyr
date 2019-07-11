@@ -229,6 +229,11 @@ what build or test failed click on the row that contains the failed (i.e.
 non-green) build and then click on the "Tests" tab to see the console output
 messages indicating the failure.
 
+The `builds@lists.zephyrproject.org mailing list
+<https://lists.zephyrproject.org/g/builds>`_
+archives the CI (shippable) nightly build results.
+
+
  .. _Contribution Tools:
 
 Contribution Tools and Git Setup
@@ -539,6 +544,13 @@ workflow here:
    to fix the issues and amend your commits by rebasing as described above.
    Additional information about the CI system can be found in
    `Continuous Integration`_.
+
+Contributions to External Modules
+**********************************
+
+Follow the guidelines in the :ref:`modules` section for contributing
+:ref:`new modules <submitting_new_modules>` and
+submitting changes to :ref:`existing modules <changes_to_existing_module>`.
 
 Commit Guidelines
 *****************

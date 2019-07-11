@@ -8,7 +8,7 @@
 #include <ztest.h>
 #include <tc_util.h>
 
-#include <misc/byteorder.h>
+#include <sys/byteorder.h>
 #include <usb/usb_device.h>
 #include <usb/usb_common.h>
 #include <usb_descriptor.h>
@@ -91,7 +91,7 @@ struct usb_test_config {
 	};
 
 #define DEFINE_TEST_CFG_DATA(x, _)				\
-	USBD_CFG_DATA_DEFINE(test_##x)				\
+	USBD_CFG_DATA_DEFINE(primary, test_##x)			\
 	struct usb_cfg_data test_config_##x = {			\
 	.usb_device_description = NULL,				\
 	.interface_config = interface_config,			\
@@ -101,8 +101,6 @@ struct usb_test_config {
 		.class_handler = NULL,				\
 		.custom_handler = NULL,				\
 		.vendor_handler = NULL,				\
-		.vendor_data = NULL,				\
-		.payload_data = NULL,				\
 	},							\
 	.num_endpoints = ARRAY_SIZE(ep_cfg_##x),		\
 	.endpoint = ep_cfg_##x,					\
@@ -226,7 +224,7 @@ static void test_desc_sections(void)
 			(int)__usb_data_end - (int)__usb_data_start,
 			"USB Configuratio structures section");
 
-	head = (struct usb_desc_header *)usb_get_device_descriptor();
+	head = (struct usb_desc_header *)__usb_descriptor_start;
 	zassert_not_null(head, NULL);
 
 	zassert_equal((int)__usb_descriptor_end - (int)__usb_descriptor_start,

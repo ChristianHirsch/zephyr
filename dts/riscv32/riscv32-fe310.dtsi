@@ -74,6 +74,7 @@
 				26 27 28 29 30 31 32 33 34 35 36 37 38 39>;
 			reg = <0x10012000 0x1000>;
 			reg-names = "control";
+			label = "gpio_0";
 			status = "disabled";
 			#gpio-cells = <2>;
 		};
@@ -85,6 +86,8 @@
 			reg-names = "control";
 			label = "i2c_0";
 			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
 		};
 		plic: interrupt-controller@c000000 {
 			#interrupt-cells = <1>;
@@ -182,6 +185,8 @@
 			reg-names = "control", "mem";
 			label = "spi_0";
 			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
 		};
 		spi1: spi@10024000 {
 			compatible = "sifive,spi0";
@@ -191,6 +196,8 @@
 			reg-names = "control";
 			label = "spi_1";
 			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
 		};
 		spi2: spi@10034000 {
 			compatible = "sifive,spi0";
@@ -200,6 +207,8 @@
 			reg-names = "control";
 			label = "spi_2";
 			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
 		};
 		teststatus: teststatus@4000 {
 			compatible = "sifive,test0";

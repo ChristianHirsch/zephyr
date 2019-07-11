@@ -77,6 +77,7 @@ u8_t chained_read_buf1[20];
 u8_t chained_read_buf2[30];
 u8_t buf_num = 1U;
 u8_t *read_ptr;
+volatile size_t read_len;
 
 void test_chained_read_callback(struct uart_event *evt, void *user_data)
 {
@@ -88,6 +89,7 @@ void test_chained_read_callback(struct uart_event *evt, void *user_data)
 		break;
 	case UART_RX_RDY:
 		read_ptr = evt->data.rx.buf + evt->data.rx.offset;
+		read_len = evt->data.rx.len;
 		k_sem_give(&rx_rdy);
 		break;
 	case UART_RX_BUF_REQUEST:
@@ -130,6 +132,8 @@ void test_chained_read(void)
 		uart_tx(uart_dev, tx_buf, sizeof(tx_buf), 100);
 		zassert_equal(k_sem_take(&tx_done, 100), 0, "TX_DONE timeout");
 		zassert_equal(k_sem_take(&rx_rdy, 1000), 0, "RX_RDY timeout");
+		zassert_equal(read_len, sizeof(tx_buf),
+			      "Incorrect read length");
 		zassert_equal(memcmp(tx_buf, read_ptr, sizeof(tx_buf)),
 			      0,
 			      "Buffers not equal");
@@ -292,7 +296,6 @@ void test_write_abort(void)
 	uart_tx(uart_dev, tx_buf, 5, 100);
 	zassert_equal(k_sem_take(&tx_done, 100), 0, "TX_DONE timeout");
 	zassert_equal(k_sem_take(&rx_rdy, 100), 0, "RX_RDY timeout");
-	zassert_equal(received, 5, "Incorrect number of bytes received.");
 	zassert_equal(memcmp(tx_buf, rx_buf, 5), 0, "Buffers not equal");
 
 	uart_tx(uart_dev, tx_buf, 95, 100);
@@ -300,10 +303,7 @@ void test_write_abort(void)
 	zassert_equal(k_sem_take(&tx_aborted, 100), 0, "TX_ABORTED timeout");
 	if (sent != 0) {
 		zassert_equal(k_sem_take(&rx_rdy, 100), 0, "RX_RDY timeout");
-		zassert_equal(sent, received - 5,
-			      "Sent is not equal to received.");
-		zassert_equal(memcmp(tx_buf, rx_buf, received), 0,
-			      "Buffers not equal");
+		zassert_equal(sent, received, "Sent is not equal to received.");
 	}
 	uart_rx_disable(uart_dev);
 	zassert_equal(k_sem_take(&rx_buf_released, 100),

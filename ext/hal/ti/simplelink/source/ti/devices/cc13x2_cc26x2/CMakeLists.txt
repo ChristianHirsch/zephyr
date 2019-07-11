@@ -11,6 +11,6 @@ zephyr_library_sources(
   driverlib/setup.c
   driverlib/chipinfo.c
   driverlib/aux_sysif.c
-  # Required for default CCFG confguration
-  startup_files/ccfg.c
+  # Required for CPUdelay which is not in ROM
+  driverlib/cpu.c
   )

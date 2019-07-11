@@ -13,7 +13,7 @@ extern "C" {
 
 #if defined(CONFIG_NET_ARP)
 
-#include <misc/slist.h>
+#include <sys/slist.h>
 #include <net/ethernet.h>
 
 /**
@@ -51,7 +51,7 @@ enum net_verdict net_arp_input(struct net_pkt *pkt,
 
 struct arp_entry {
 	sys_snode_t node;
-	s64_t req_start;
+	u32_t req_start;
 	struct net_if *iface;
 	struct in_addr ip;
 	union {

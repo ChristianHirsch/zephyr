@@ -9,8 +9,8 @@
 
 #include <zephyr/types.h>
 #include <device.h>
-#include <gpio.h>
-#include <spi.h>
+#include <drivers/gpio.h>
+#include <drivers/spi.h>
 
 #define ADXL362_SLAVE_ID    1
 
@@ -161,11 +161,20 @@
 #define ADXL362_STATUS_CHECK_INACT(x)		(((x) >> 5) & 0x1)
 #define ADXL362_STATUS_CHECK_ACTIVITY(x)	(((x) >> 4) & 0x1)
 
+/* ADXL362 scale factors from specifications */
+#define ADXL362_ACCEL_2G_LSB_PER_G	1000
+#define ADXL362_ACCEL_4G_LSB_PER_G	500
+#define ADXL362_ACCEL_8G_LSB_PER_G	235
+
+/* ADXL362 temperature sensor specifications */
+#define ADXL362_TEMP_MC_PER_LSB 65
+#define ADXL362_TEMP_BIAS_LSB 350
+
 struct adxl362_config {
 	char *spi_name;
 	u32_t spi_max_frequency;
 	u16_t spi_slave;
-#if defined(DT_ADI_ADXL362_0_CS_GPIO_CONTROLLER)
+#if defined(DT_INST_0_ADI_ADXL362_CS_GPIOS_CONTROLLER)
 	const char *gpio_cs_port;
 	u8_t cs_gpio;
 #endif
@@ -180,13 +189,13 @@ struct adxl362_config {
 struct adxl362_data {
 	struct device *spi;
 	struct spi_config spi_cfg;
-#if defined(DT_ADI_ADXL362_0_CS_GPIO_CONTROLLER)
+#if defined(DT_INST_0_ADI_ADXL362_CS_GPIOS_CONTROLLER)
 	struct spi_cs_control adxl362_cs_ctrl;
 #endif
-	s32_t acc_x;
-	s32_t acc_y;
-	s32_t acc_z;
-	s32_t temp;
+	s16_t acc_x;
+	s16_t acc_y;
+	s16_t acc_z;
+	s16_t temp;
 	u8_t selected_range;
 
 #if defined(CONFIG_ADXL362_TRIGGER)

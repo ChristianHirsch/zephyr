@@ -40,7 +40,12 @@
   #define SKIP_TO_KINETIS_FLASH_CONFIG
 #endif
 
+#if !defined(CONFIG_XIP) && (CONFIG_FLASH_SIZE == 0)
+#define ROM_ADDR RAM_ADDR
+#else
 #define ROM_ADDR (CONFIG_FLASH_BASE_ADDRESS + CONFIG_FLASH_LOAD_OFFSET)
+#endif
+
 #ifdef CONFIG_TI_CCFG_PRESENT
   #define CCFG_SIZE 88
   #define ROM_SIZE (CONFIG_FLASH_SIZE*1K - CONFIG_FLASH_LOAD_OFFSET - \
@@ -97,7 +102,10 @@ MEMORY
     CCM                   (rw) : ORIGIN = DT_CCM_BASE_ADDRESS, LENGTH = DT_CCM_SIZE * 1K
 #endif
     SRAM                  (wx) : ORIGIN = RAM_ADDR, LENGTH = RAM_SIZE
-
+#ifdef CONFIG_BT_STM32_IPM
+    SRAM1                 (rw) : ORIGIN = RAM1_ADDR, LENGTH = RAM1_SIZE
+    SRAM2                 (rw) : ORIGIN = RAM2_ADDR, LENGTH = RAM2_SIZE
+#endif
     /* Used by and documented in include/linker/intlist.ld */
     IDT_LIST  (wx)      : ORIGIN = (RAM_ADDR + RAM_SIZE), LENGTH = 2K
     }
@@ -264,22 +272,6 @@ SECTIONS
 	. = ALIGN(4);
 	} GROUP_LINK_IN(ROMABLE_REGION)
 
-#if defined CONFIG_ARM_FIRMWARE_HAS_SECURE_ENTRY_FUNCS
-#if CONFIG_ARM_NSC_REGION_BASE_ADDRESS != 0
-       SECTION_PROLOGUE(.gnu.sgstubs,CONFIG_ARM_NSC_REGION_BASE_ADDRESS,)
-#else
-       SECTION_PROLOGUE(.gnu.sgstubs,,)
-#endif /* CONFIG_ARM_NSC_REGION_BASE_ADDRESS != 0 */
-       {
-       . = ALIGN(4);
-       __sg_start = .;
-       *(.gnu*)
-       . = ALIGN(4);
-       __sg_end = .;
-       __sg_size = __sg_end - __sg_start;
-       } GROUP_LINK_IN(ROMABLE_REGION)
-#endif /* CONFIG_ARM_FIRMWARE_HAS_SECURE_ENTRY_FUNCS */
-
 	_image_rodata_end = .;
 	MPU_ALIGN(_image_rodata_end -_image_rom_start);
 	_image_rom_end = .;
@@ -354,6 +346,10 @@ SECTIONS
 	*(COMMON)
 	*(".kernel_bss.*")
 
+#ifdef CONFIG_CODE_DATA_RELOCATION
+#include <linker_sram_bss_relocate.ld>
+#endif
+
         /*
          * As memory is cleared in words only, it is simpler to ensure the BSS
          * section ends on a 4 byte boundary. This wastes a maximum of 3 bytes.
@@ -401,6 +397,10 @@ SECTIONS
 #include <custom-rwdata.ld>
 #endif
 
+#ifdef CONFIG_CODE_DATA_RELOCATION
+#include <linker_sram_data_relocate.ld>
+#endif
+
 	} GROUP_DATA_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
 
     __data_rom_start = LOADADDR(_DATA_SECTION_NAME);
@@ -441,6 +441,44 @@ SECTIONS
 	KEEP(*(.ARM.attributes))
 	KEEP(*(.gnu.attributes))
 	}
+
+#if defined(CONFIG_ARM_FIRMWARE_HAS_SECURE_ENTRY_FUNCS)
+#if CONFIG_ARM_NSC_REGION_BASE_ADDRESS != 0
+	#define NSC_ALIGN . = ABSOLUTE(CONFIG_ARM_NSC_REGION_BASE_ADDRESS)
+#elif defined(CONFIG_CPU_HAS_NRF_IDAU)
+	/* The nRF9160 needs the NSC region to be at the end of a 32 kB region. */
+	#define NSC_ALIGN . = ALIGN(0x8000) - (1 << LOG2CEIL(__sg_size))
+#else
+	#define NSC_ALIGN . = ALIGN(4)
+#endif
+
+#ifdef CONFIG_CPU_HAS_NRF_IDAU
+	#define NSC_ALIGN_END . = ALIGN(0x8000)
+#else
+	#define NSC_ALIGN_END . = ALIGN(4)
+#endif
+
+SECTION_PROLOGUE(.gnu.sgstubs,,)
+{
+	NSC_ALIGN;
+	__sg_start = .;
+	/* No input section necessary, since the Secure Entry Veneers are
+	   automatically placed after the .gnu.sgstubs output section. */
+} GROUP_LINK_IN(ROMABLE_REGION)
+__sg_end = .;
+__sg_size = __sg_end - __sg_start;
+NSC_ALIGN_END;
+__nsc_size = . - __sg_start;
+
+#ifdef CONFIG_CPU_HAS_NRF_IDAU
+	ASSERT(1 << LOG2CEIL(0x8000 - (__sg_start % 0x8000))
+			 == (0x8000 - (__sg_start % 0x8000))
+		&& (0x8000 - (__sg_start % 0x8000)) >= 32
+		&& (0x8000 - (__sg_start % 0x8000)) <= 4096,
+		"The Non-Secure Callable region size must be a power of 2 \
+between 32 and 4096 bytes.")
+#endif
+#endif /* CONFIG_ARM_FIRMWARE_HAS_SECURE_ENTRY_FUNCS */
 
 /* Must be last in romable region */
 SECTION_PROLOGUE(.last_section,(NOLOAD),)

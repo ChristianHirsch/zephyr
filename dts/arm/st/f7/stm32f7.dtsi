@@ -30,11 +30,6 @@
 		};
 	};
 
-	sram0: memory@20000000 {
-		device_type = "memory";
-		compatible = "mmio-sram";
-	};
-
 	soc {
 		flash-controller@40023c00 {
 			compatible = "st,stm32f7-flash-controller";
@@ -54,7 +49,6 @@
 		};
 		rcc: rcc@40023800 {
 			compatible = "st,stm32-rcc";
-			clocks-controller;
 			#clock-cells = <2>;
 			reg = <0x40023800 0x400>;
 			label = "STM32_CLK_RCC";

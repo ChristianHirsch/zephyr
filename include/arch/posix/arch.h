@@ -17,6 +17,9 @@
 #ifndef ZEPHYR_INCLUDE_ARCH_POSIX_ARCH_H_
 #define ZEPHYR_INCLUDE_ARCH_POSIX_ARCH_H_
 
+/* Add include for DTS generated information */
+#include <generated_dts_board.h>
+
 #include <toolchain.h>
 #include <irq.h>
 #include <arch/posix/asm_inline.h>
@@ -39,7 +42,7 @@ extern "C" {
 #define _NANO_ERR_KERNEL_PANIC (6)  /* Kernel panic (fatal to system) */
 
 struct __esf {
-	u32_t dummy; /*maybe we will want to add somethign someday*/
+	u32_t dummy; /*maybe we will want to add something someday*/
 };
 
 typedef struct __esf NANO_ESF;

@@ -30,11 +30,6 @@
 enum {
 	TICKER_ID_LLL_PREEMPT = 0,
 
-#if defined(CONFIG_BT_TMP)
-	TICKER_ID_TMP_BASE,
-	TICKER_ID_TMP_LAST = ((TICKER_ID_TMP_BASE) + (CONFIG_BT_TMP_MAX) - 1),
-#endif /* CONFIG_BT_TMP */
-
 #if defined(CONFIG_BT_BROADCASTER)
 	TICKER_ID_ADV_STOP,
 	TICKER_ID_ADV_BASE,
@@ -173,8 +168,15 @@ enum node_rx_type {
 	NODE_RX_TYPE_MESH_ADV_CPLT = 0x13,
 	NODE_RX_TYPE_MESH_REPORT = 0x14,
 #endif /* CONFIG_BT_HCI_MESH_EXT */
-};
 
+/* Following proprietary defines must be at end of enum range */
+#if defined(CONFIG_BT_CTLR_USER_EXT)
+	NODE_RX_TYPE_USER_START = 0x15,
+	NODE_RX_TYPE_USER_END = NODE_RX_TYPE_USER_START +
+				CONFIG_BT_CTLR_USER_EVT_RANGE,
+#endif /* CONFIG_BT_CTLR_USER_EXT */
+
+};
 
 /* Footer of node_rx_hdr */
 struct node_rx_ftr {
@@ -183,6 +185,16 @@ struct node_rx_ftr {
 	u32_t ticks_anchor;
 	u32_t us_radio_end;
 	u32_t us_radio_rdy;
+	u8_t  rssi;
+#if defined(CONFIG_BT_CTLR_PRIVACY)
+	u8_t  rl_idx;
+#endif /* CONFIG_BT_CTLR_PRIVACY */
+#if defined(CONFIG_BT_CTLR_EXT_SCAN_FP)
+	u8_t  direct;
+#endif /* CONFIG_BT_CTLR_EXT_SCAN_FP */
+#if defined(CONFIG_BT_HCI_MESH_EXT)
+	u8_t  chan_idx;
+#endif /* CONFIG_BT_HCI_MESH_EXT */
 };
 
 
@@ -208,6 +220,13 @@ struct node_rx_pdu {
 enum {
 	EVENT_DONE_EXTRA_TYPE_NONE,
 	EVENT_DONE_EXTRA_TYPE_CONN,
+/* Following proprietary defines must be at end of enum range */
+#if defined(CONFIG_BT_CTLR_USER_EXT)
+	EVENT_DONE_EXTRA_TYPE_USER_START,
+	EVENT_DONE_EXTRA_TYPE_USER_END = EVENT_DONE_EXTRA_TYPE_USER_START +
+		CONFIG_BT_CTLR_USER_EVT_RANGE,
+#endif /* CONFIG_BT_CTLR_USER_EXT */
+
 };
 
 struct event_done_extra_slave {

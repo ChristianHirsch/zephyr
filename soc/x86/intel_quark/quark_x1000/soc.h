@@ -15,7 +15,7 @@
 #ifndef __SOC_H_
 #define __SOC_H_
 
-#include <misc/util.h>
+#include <sys/util.h>
 
 #ifndef _ASMLANGUAGE
 #include <device.h>
@@ -23,7 +23,7 @@
 #endif
 
 #ifdef CONFIG_IOAPIC
-#include <drivers/ioapic.h>
+#include <drivers/interrupt_controller/ioapic.h>
 #endif
 
 /*
@@ -84,18 +84,6 @@
 #if defined(CONFIG_IOAPIC)
 #define DT_GPIO_DW_0_IRQ_FLAGS			(IOAPIC_LEVEL | IOAPIC_LOW)
 #endif
-
-/*
- * I2C
- */
-#define I2C_DW_0_PCI_VENDOR_ID			0x8086
-#define I2C_DW_0_PCI_DEVICE_ID			0x0934
-#define I2C_DW_0_PCI_CLASS			0x0C
-
-#define I2C_DW_0_PCI_BUS			0
-#define I2C_DW_0_PCI_DEV			21
-#define I2C_DW_0_PCI_FUNCTION			2
-#define I2C_DW_0_PCI_BAR			0
 
 #ifdef CONFIG_IOAPIC
 #define UART_IRQ_FLAGS				(IOAPIC_LEVEL | IOAPIC_LOW)

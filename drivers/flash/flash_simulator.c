@@ -5,12 +5,12 @@
  */
 
 #include <device.h>
-#include <flash.h>
+#include <drivers/flash.h>
 #include <init.h>
 #include <kernel.h>
-#include <misc/util.h>
+#include <sys/util.h>
 #include <random/rand32.h>
-#include <stats.h>
+#include <stats/stats.h>
 #include <string.h>
 
 /* configuration derived from DT */
@@ -90,11 +90,15 @@ STATS_NAME_END(flash_sim_stats);
 /* simulator dynamic thresholds */
 STATS_SECT_START(flash_sim_thresholds)
 STATS_SECT_ENTRY32(max_write_calls)
+STATS_SECT_ENTRY32(max_erase_calls)
+STATS_SECT_ENTRY32(max_len)
 STATS_SECT_END;
 
 STATS_SECT_DECL(flash_sim_thresholds) flash_sim_thresholds;
 STATS_NAME_START(flash_sim_thresholds)
 STATS_NAME(flash_sim_thresholds, max_write_calls)
+STATS_NAME(flash_sim_thresholds, max_erase_calls)
+STATS_NAME(flash_sim_thresholds, max_len)
 STATS_NAME_END(flash_sim_thresholds);
 
 static u8_t mock_flash[FLASH_SIZE];
@@ -135,9 +139,11 @@ static int flash_sim_read(struct device *dev, const off_t offset, void *data,
 		return -EINVAL;
 	}
 
-	if ((offset % FLASH_SIMULATOR_PROG_UNIT) ||
-	    (len % FLASH_SIMULATOR_PROG_UNIT)) {
-		return -EINVAL;
+	if (!IS_ENABLED(CONFIG_FLASH_SIMULATOR_UNALIGNED_READ)) {
+		if ((offset % FLASH_SIMULATOR_PROG_UNIT) ||
+		    (len % FLASH_SIMULATOR_PROG_UNIT)) {
+			return -EINVAL;
+		}
 	}
 
 	STATS_INC(flash_sim_stats, flash_read_calls);
@@ -188,13 +194,29 @@ static int flash_sim_write(struct device *dev, const off_t offset,
 		}
 	}
 
-	if ((flash_sim_thresholds.max_write_calls != 0) &&
-	    (flash_sim_stats.flash_write_calls >
-		flash_sim_thresholds.max_write_calls)){
-		return 0;
+	bool data_part_ignored = false;
+
+	if (flash_sim_thresholds.max_write_calls != 0) {
+		if (flash_sim_stats.flash_write_calls >
+			flash_sim_thresholds.max_write_calls) {
+			return 0;
+		} else if (flash_sim_stats.flash_write_calls ==
+				flash_sim_thresholds.max_write_calls) {
+			if (flash_sim_thresholds.max_len == 0) {
+				return 0;
+			}
+
+			data_part_ignored = true;
+		}
 	}
 
 	for (u32_t i = 0; i < len; i++) {
+		if (data_part_ignored) {
+			if (i >= flash_sim_thresholds.max_len) {
+				return 0;
+			}
+		}
+
 		/* only pull bits to zero */
 		*(FLASH(offset + i)) &= *((u8_t *)data + i);
 	}
@@ -245,6 +267,12 @@ static int flash_sim_erase(struct device *dev, const off_t offset,
 	}
 
 	STATS_INC(flash_sim_stats, flash_erase_calls);
+
+	if ((flash_sim_thresholds.max_erase_calls != 0) &&
+	    (flash_sim_stats.flash_erase_calls >=
+		flash_sim_thresholds.max_erase_calls)){
+		return 0;
+	}
 
 	/* the first unit to be erased */
 	u32_t unit_start = (offset - FLASH_SIMULATOR_BASE_OFFSET) /

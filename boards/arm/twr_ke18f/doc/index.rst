@@ -68,6 +68,20 @@ features:
 +-----------+------------+-------------------------------------+
 | RTC       | on-chip    | rtc                                 |
 +-----------+------------+-------------------------------------+
+| I2C(M)    | on-chip    | i2c                                 |
++-----------+------------+-------------------------------------+
+| SENSOR    | off-chip   | fxos8700 polling;                   |
+|           |            | trigger supported with H/W mods     |
+|           |            | explained below;                    |
++-----------+------------+-------------------------------------+
+| SPI(M)    | on-chip    | spi                                 |
++-----------+------------+-------------------------------------+
+| ADC       | on-chip    | adc                                 |
++-----------+------------+-------------------------------------+
+| CAN       | on-chip    | can                                 |
++-----------+------------+-------------------------------------+
+| WDT       | on-chip    | watchdog                            |
++-----------+------------+-------------------------------------+
 
 The default configuration can be found in the defconfig file:
 ``boards/arm/twr_ke18f/twr_ke18f_defconfig``.
@@ -85,6 +99,31 @@ Serial Port
 
 The KE18 SoC has three UARTs. UART0 is configured for the console. The
 remaining UARTs are not used.
+
+Accelerometer and magnetometer
+==============================
+
+The TWR-KE18F board by default only supports polling the FXOS8700
+accelerometer and magnetometer for sensor values
+(``CONFIG_FXOS8700_TRIGGER_NONE=y``).
+
+In order to support FXOS8700 triggers (interrupts) the 0 ohm resistors
+``R47`` and and ``R57`` must be mounted on the TWR-KE18F board. The
+device tree must also be modified to describe the FXOS8700 interrupt
+GPIOs:
+
+.. code-block:: none
+
+  /dts-v1/;
+
+  &fxos8700 {
+          int1-gpios = <&gpioa 14 0>;
+          int2-gpios = <&gpioc 17 0>;
+  };
+
+Finally, a trigger option must be enabled in Kconfig (either
+``FXOS8700_TRIGGER_GLOBAL_THREAD=y`` or
+``FXOS8700_TRIGGER_OWN_THREAD=y``).
 
 Programming and Debugging
 *************************
@@ -120,11 +159,12 @@ path.
 Follow the instructions in :ref:`opensda-jlink-onboard-debug-probe` to program
 the `OpenSDA J-Link Firmware for TWR-KE18F`_.
 
-Add the argument ``-DOPENSDA_FW=jlink`` when you invoke ``cmake`` or ``west
-build`` to override the default runner from pyOCD to J-Link:
+Add the argument ``-DOPENSDA_FW=jlink`` when you invoke ``west build`` or
+``cmake`` to override the default runner from pyOCD to J-Link:
 
 .. zephyr-app-commands::
    :zephyr-app: samples/hello_world
+   :tool: all
    :board: twr_ke18f
    :gen-args: -DOPENSDA_FW=jlink
    :goals: build

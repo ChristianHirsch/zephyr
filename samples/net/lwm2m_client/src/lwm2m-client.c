@@ -11,8 +11,10 @@
 #include <logging/log.h>
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
+#include <hwinfo.h>
 #include <zephyr.h>
-#include <gpio.h>
+#include <drivers/gpio.h>
+#include <drivers/sensor.h>
 #include <net/lwm2m.h>
 
 #define APP_BANNER "Run LWM2M client"
@@ -46,17 +48,17 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #define ENDPOINT_LEN		32
 
-#ifndef LED0_GPIO_CONTROLLER
+#ifndef DT_ALIAS_LED0_GPIOS_CONTROLLER
 #ifdef LED0_GPIO_PORT
-#define LED0_GPIO_CONTROLLER 	LED0_GPIO_PORT
+#define DT_ALIAS_LED0_GPIOS_CONTROLLER 	LED0_GPIO_PORT
 #else
-#define LED0_GPIO_CONTROLLER "(fail)"
-#define LED0_GPIO_PIN 0
+#define DT_ALIAS_LED0_GPIOS_CONTROLLER "(fail)"
+#define DT_ALIAS_LED0_GPIOS_PIN 0
 #endif
 #endif
 
-#define LED_GPIO_PORT LED0_GPIO_CONTROLLER
-#define LED_GPIO_PIN LED0_GPIO_PIN
+#define LED_GPIO_PORT DT_ALIAS_LED0_GPIOS_CONTROLLER
+#define LED_GPIO_PIN DT_ALIAS_LED0_GPIOS_PIN
 
 static int pwrsrc_bat;
 static int pwrsrc_usb;
@@ -177,6 +179,32 @@ static int firmware_update_cb(u16_t obj_inst_id)
 }
 #endif
 
+
+static void *temperature_get_buf(u16_t obj_inst_id, size_t *data_len)
+{
+	/* Last read temperature value, will use 25.5C if no sensor available */
+	static struct float32_value v = { 25, 500000 };
+	struct device *dev = NULL;
+
+#if defined(CONFIG_FXOS8700_TEMP)
+	dev = device_get_binding(DT_INST_0_NXP_FXOS8700_LABEL);
+#endif
+
+	if (dev != NULL) {
+		if (sensor_sample_fetch(dev)) {
+			LOG_ERR("temperature data update failed");
+		}
+
+		sensor_channel_get(dev, SENSOR_CHAN_DIE_TEMP,
+				  (struct sensor_value *) &v);
+		LOG_DBG("LWM2M temperature set to %d.%d", v.val1, v.val2);
+	}
+
+	*data_len = sizeof(v);
+	return &v;
+}
+
+
 #if defined(CONFIG_LWM2M_FIRMWARE_UPDATE_OBJ_SUPPORT)
 static void *firmware_get_buf(u16_t obj_inst_id, size_t *data_len)
 {
@@ -211,7 +239,6 @@ static int timer_digital_state_cb(u16_t obj_inst_id,
 
 static int lwm2m_setup(void)
 {
-	struct float32_value float_value;
 	int ret;
 	char *server_url;
 	u16_t server_url_len;
@@ -300,12 +327,8 @@ static int lwm2m_setup(void)
 #endif
 
 	/* setup TEMP SENSOR object */
-
 	lwm2m_engine_create_obj_inst("3303/0");
-	/* dummy temp data in C: 25.5*/
-	float_value.val1 = 25;
-	float_value.val2 = 500000;
-	lwm2m_engine_set_float32("3303/0/5700", &float_value);
+	lwm2m_engine_register_read_callback("3303/0/5700", temperature_get_buf);
 
 	/* IPSO: Light Control object */
 	if (init_led_device() == 0) {
@@ -390,7 +413,32 @@ void main(void)
 	client.tls_tag = TLS_TAG;
 #endif
 
+#if defined(CONFIG_HWINFO)
+	u8_t dev_id[16];
+	char dev_str[33];
+	ssize_t length;
+	int i;
+
+	(void)memset(dev_id, 0x0, sizeof(dev_id));
+
+	/* Obtain the device id */
+	length = hwinfo_get_device_id(dev_id, sizeof(dev_id));
+
+	/* If this fails for some reason, use all zeros instead */
+	if (length <= 0) {
+		length = sizeof(dev_id);
+	}
+
+	/* Render the obtained serial number in hexadecimal representation */
+	for (i = 0 ; i < length ; i++) {
+		sprintf(&dev_str[i*2], "%02x", dev_id[i]);
+	}
+
+	lwm2m_rd_client_start(&client, dev_str, rd_client_event);
+#else
 	/* client.sec_obj_inst is 0 as a starting point */
 	lwm2m_rd_client_start(&client, CONFIG_BOARD, rd_client_event);
+#endif
+
 	k_sem_take(&quit_lock, K_FOREVER);
 }

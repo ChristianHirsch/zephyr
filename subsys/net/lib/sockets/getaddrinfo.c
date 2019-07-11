@@ -6,6 +6,7 @@
 
 /* libc headers */
 #include <stdlib.h>
+#include <ctype.h>
 
 /* Zephyr headers */
 #include <logging/log.h>
@@ -18,6 +19,15 @@ LOG_MODULE_REGISTER(net_sock_addr, CONFIG_NET_SOCKETS_LOG_LEVEL);
 #define AI_ARR_MAX	2
 
 #if defined(CONFIG_DNS_RESOLVER)
+
+/* Helper macros which take into account the fact that ai_family as passed
+ * into getaddrinfo() may take values AF_INET, AF_INET6, or AF_UNSPEC, where
+ * AF_UNSPEC means resolve both AF_INET and AF_INET6.
+ */
+#define RESOLVE_IPV4(ai_family) \
+	(IS_ENABLED(CONFIG_NET_IPV4) && (ai_family) != AF_INET6)
+#define RESOLVE_IPV6(ai_family) \
+	(IS_ENABLED(CONFIG_NET_IPV6) && (ai_family) != AF_INET)
 
 struct getaddrinfo_state {
 	const struct zsock_addrinfo *hints;
@@ -95,7 +105,7 @@ static int exec_query(const char *host, int family,
 {
 	enum dns_query_type qtype = DNS_QUERY_TYPE_A;
 
-	if (IS_ENABLED(CONFIG_NET_IPV6) && family != AF_INET) {
+	if (IS_ENABLED(CONFIG_NET_IPV6) && family == AF_INET6) {
 		qtype = DNS_QUERY_TYPE_AAAA;
 	}
 
@@ -128,6 +138,7 @@ int z_impl_z_zsock_getaddrinfo_internal(const char *host, const char *service,
 				       struct zsock_addrinfo *res)
 {
 	int family = AF_UNSPEC;
+	int ai_flags = 0;
 	long int port = 0;
 	int st1 = DNS_EAI_ADDRFAMILY, st2 = DNS_EAI_ADDRFAMILY;
 	struct sockaddr *ai_addr;
@@ -136,6 +147,7 @@ int z_impl_z_zsock_getaddrinfo_internal(const char *host, const char *service,
 
 	if (hints) {
 		family = hints->ai_family;
+		ai_flags = hints->ai_flags;
 	}
 
 	if (service) {
@@ -155,6 +167,35 @@ int z_impl_z_zsock_getaddrinfo_internal(const char *host, const char *service,
 		return getaddrinfo_null_host(port, hints, res);
 	}
 
+#define SIN_ADDR(ptr) (net_sin(ptr)->sin_addr)
+
+	/* Check for IPv4 numeric address. Start with a quick heuristic check,
+	 * of first char of the address, then do long validating inet_pton()
+	 * call if needed.
+	 */
+	if (RESOLVE_IPV4(family) &&
+	    isdigit((int)*host) &&
+	    zsock_inet_pton(AF_INET, host,
+			    &SIN_ADDR(&res->_ai_addr)) == 1) {
+		struct sockaddr_in *addr =
+			(struct sockaddr_in *)&res->_ai_addr;
+
+		addr->sin_port = htons(port);
+		addr->sin_family = AF_INET;
+		INIT_ADDRINFO(res, addr);
+		res->ai_family = AF_INET;
+		res->ai_socktype = SOCK_STREAM;
+		res->ai_protocol = IPPROTO_TCP;
+		return 0;
+	}
+
+	if (ai_flags & AI_NUMERICHOST) {
+		/* Asked to resolve host as numeric, but it wasn't possible
+		 * to do that.
+		 */
+		return DNS_EAI_FAIL;
+	}
+
 	ai_state.hints = hints;
 	ai_state.idx = 0U;
 	ai_state.port = htons(port);
@@ -164,6 +205,7 @@ int z_impl_z_zsock_getaddrinfo_internal(const char *host, const char *service,
 	/* Link entries in advance */
 	ai_state.ai_arr[0].ai_next = &ai_state.ai_arr[1];
 
+	/* If the family is AF_UNSPEC, then we query IPv4 address first */
 	ret = exec_query(host, family, &ai_state);
 	if (ret == 0) {
 		/* If the DNS query for reason fails so that the
@@ -183,6 +225,26 @@ int z_impl_z_zsock_getaddrinfo_internal(const char *host, const char *service,
 	} else {
 		errno = -ret;
 		st1 = DNS_EAI_SYSTEM;
+	}
+
+	/* If family is AF_UNSPEC, the IPv4 query has been already done
+	 * so we can do IPv6 query next if IPv6 is enabled in the config.
+	 */
+	if (family == AF_UNSPEC && IS_ENABLED(CONFIG_NET_IPV6)) {
+		ret = exec_query(host, AF_INET6, &ai_state);
+		if (ret == 0) {
+			int ret = k_sem_take(&ai_state.sem,
+					     CONFIG_NET_SOCKETS_DNS_TIMEOUT +
+					     K_MSEC(100));
+			if (ret == -EAGAIN) {
+				return DNS_EAI_AGAIN;
+			}
+
+			st2 = ai_state.status;
+		} else {
+			errno = -ret;
+			st2 = DNS_EAI_SYSTEM;
+		}
 	}
 
 	if (ai_state.idx > 0) {

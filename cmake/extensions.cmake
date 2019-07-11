@@ -65,17 +65,10 @@
 # https://cmake.org/cmake/help/latest/command/target_sources.html
 function(zephyr_sources)
   foreach(arg ${ARGV})
-    if(IS_ABSOLUTE ${arg})
-      set(path ${arg})
-    else()
-      set(path ${CMAKE_CURRENT_SOURCE_DIR}/${arg})
-    endif()
-
-    if(IS_DIRECTORY ${path})
+    if(IS_DIRECTORY ${arg})
       message(FATAL_ERROR "zephyr_sources() was called on a directory")
     endif()
-
-    target_sources(zephyr PRIVATE ${path})
+    target_sources(zephyr PRIVATE ${arg})
   endforeach()
 endfunction()
 
@@ -332,7 +325,7 @@ endmacro()
 # or zephyr_library_named. The constructors create a CMake library
 # with a name accessible through the variable ZEPHYR_CURRENT_LIBRARY.
 #
-# The variable ZEPHYR_CURRENT_LIBRARY should seldomly be needed since
+# The variable ZEPHYR_CURRENT_LIBRARY should seldom be needed since
 # the zephyr libraries have methods that modify the libraries. These
 # methods have the signature: zephyr_library_<target-function>
 #
@@ -559,6 +552,66 @@ endfunction()
 # This section provides glue between CMake and the Python code that
 # manages the runners.
 
+function(_board_check_runner_type type) # private helper
+  if (NOT (("${type}" STREQUAL "FLASH") OR ("${type}" STREQUAL "DEBUG")))
+    message(FATAL_ERROR "invalid type ${type}; should be FLASH or DEBUG")
+  endif()
+endfunction()
+
+# This function sets the runner for the board unconditionally.  It's
+# meant to be used from application CMakeLists.txt files.
+#
+# NOTE: Usually board_set_xxx_ifnset() is best in board.cmake files.
+#       This lets the user set the runner at cmake time, or in their
+#       own application's CMakeLists.txt.
+#
+# Usage:
+#   board_set_runner(FLASH pyocd)
+#
+# This would set the board's flash runner to "pyocd".
+#
+# In general, "type" is FLASH or DEBUG, and "runner" is the name of a
+# runner.
+function(board_set_runner type runner)
+  _board_check_runner_type(${type})
+  if (DEFINED BOARD_${type}_RUNNER)
+    message(STATUS "overriding ${type} runner ${BOARD_${type}_RUNNER}; it's now ${runner}")
+  endif()
+  set(BOARD_${type}_RUNNER ${runner} PARENT_SCOPE)
+endfunction()
+
+# This macro is like board_set_runner(), but will only make a change
+# if that runner is currently not set.
+#
+# See also board_set_flasher_ifnset() and board_set_debugger_ifnset().
+macro(board_set_runner_ifnset type runner)
+  _board_check_runner_type(${type})
+  # This is a macro because set_ifndef() works at parent scope.
+  # If this were a function, that would be this function's scope,
+  # which wouldn't work.
+  set_ifndef(BOARD_${type}_RUNNER ${runner})
+endmacro()
+
+# A convenience macro for board_set_runner(FLASH ${runner}).
+macro(board_set_flasher runner)
+  board_set_runner(FLASH ${runner})
+endmacro()
+
+# A convenience macro for board_set_runner(DEBUG ${runner}).
+macro(board_set_debugger runner)
+  board_set_runner(DEBUG ${runner})
+endmacro()
+
+# A convenience macro for board_set_runner_ifnset(FLASH ${runner}).
+macro(board_set_flasher_ifnset runner)
+  board_set_runner_ifnset(FLASH ${runner})
+endmacro()
+
+# A convenience macro for board_set_runner_ifnset(DEBUG ${runner}).
+macro(board_set_debugger_ifnset runner)
+  board_set_runner_ifnset(DEBUG ${runner})
+endmacro()
+
 # This function is intended for board.cmake files and application
 # CMakeLists.txt files.
 #
@@ -770,7 +823,7 @@ endfunction()
 #    _mysection_size = ABSOLUTE(_mysection_end - _mysection_start);
 #
 # When placing into SECTIONS or RAM_SECTIONS, the files must instead define
-# their own output sections to acheive the same thing:
+# their own output sections to achieve the same thing:
 #    SECTION_PROLOGUE(.mysection,,)
 #    {
 #        _mysection_start = .;
@@ -835,7 +888,9 @@ function(zephyr_linker_sources location)
 
     # Append the file contents to the relevant destination file.
     file(READ ${path} snippet)
-    file(APPEND ${snippet_path} "\n/* From ${path}: */\n" "${snippet}\n")
+    file(RELATIVE_PATH relpath ${ZEPHYR_BASE} ${path})
+    file(APPEND ${snippet_path}
+             "\n/* From \${ZEPHYR_BASE}/${relpath}: */\n" "${snippet}\n")
   endforeach()
 endfunction(zephyr_linker_sources)
 
@@ -914,9 +969,12 @@ endfunction()
 
 # 2.2 Misc
 #
+# import_kconfig(<prefix> <kconfig_fragment> [<keys>])
+#
 # Parse a KConfig fragment (typically with extension .config) and
 # introduce all the symbols that are prefixed with 'prefix' into the
-# CMake namespace
+# CMake namespace. List all created variable names in the 'keys'
+# output variable if present.
 function(import_kconfig prefix kconfig_fragment)
   # Parse the lines prefixed with 'prefix' in ${kconfig_fragment}
   file(
@@ -944,6 +1002,11 @@ function(import_kconfig prefix kconfig_fragment)
     endif()
 
     set("${CONF_VARIABLE_NAME}" "${CONF_VARIABLE_VALUE}" PARENT_SCOPE)
+    list(APPEND keys "${CONF_VARIABLE_NAME}")
+  endforeach()
+
+  foreach(outvar ${ARGN})
+    set(${outvar} "${keys}" PARENT_SCOPE)
   endforeach()
 endfunction()
 
@@ -1263,10 +1326,10 @@ macro(assert test comment)
 endmacro()
 
 # Usage:
-#   assert_not(FLASH_SCRIPT "FLASH_SCRIPT has been removed; use BOARD_FLASH_RUNNER")
+#   assert_not(OBSOLETE_VAR "OBSOLETE_VAR has been removed; use NEW_VAR instead")
 #
-# will cause a FATAL_ERROR and print an errorm essage if the first
-# espression is true
+# will cause a FATAL_ERROR and print an error message if the first
+# expression is true
 macro(assert_not test comment)
   if(${test})
     message(FATAL_ERROR "Assertion failed: ${comment}")

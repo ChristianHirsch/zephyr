@@ -14,9 +14,11 @@ config SOC_MKE14F16
 
 config SOC_MKE16F16
 	bool "MKE16F16"
+	select HAS_MCUX_FLEXCAN
 
 config SOC_MKE18F16
 	bool "MKE18F16"
+	select HAS_MCUX_FLEXCAN
 
 endchoice
 
@@ -86,5 +88,9 @@ config WDOG_INIT
 	  window for configuration upon reset. Therefore, this
 	  requires that the watchdog be configured during reset
 	  handling.
+
+config KINETIS_KE1XF_ENABLE_CODE_CACHE
+        bool "Enable the code cache"
+        default y
 
 endif # SOC_SERIES_KINETIS_KE1XF

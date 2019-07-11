@@ -27,7 +27,7 @@
 /*
  * GCC can detect if memcpy is passed a NULL argument, however one of
  * the cases of relocate_vector_table() it is valid to pass NULL, so we
- * supress the warning for this case.  We need to do this before
+ * suppress the warning for this case.  We need to do this before
  * string.h is included to get the declaration of memcpy.
  */
 #pragma GCC diagnostic push
@@ -107,10 +107,16 @@ static inline void enable_floating_point(void)
 	FPU->FPCCR &= (~(FPU_FPCCR_ASPEN_Msk | FPU_FPCCR_LSPEN_Msk));
 #else
 	/*
-	 * Disable lazy state preservation so the volatile FP registers are
-	 * always saved on exception.
+	 * Enable both automatic and lazy state preservation of the FP context.
+	 * The FPCA bit of the CONTROL register will be automatically set, if
+	 * the thread uses the floating point registers. Because of lazy state
+	 * preservation the volatile FP registers will not be stacked upon
+	 * exception entry, however, the required area in the stack frame will
+	 * be reserved for them. This configuration improves interrupt latency.
+	 * The registers will eventually be stacked when the thread is swapped
+	 * out during context-switch.
 	 */
-	FPU->FPCCR = FPU_FPCCR_ASPEN_Msk; /* FPU_FPCCR_LSPEN = 0 */
+	FPU->FPCCR = FPU_FPCCR_ASPEN_Msk | FPU_FPCCR_LSPEN_Msk;
 #endif /* CONFIG_FP_SHARING */
 
 	/* Make the side-effects of modifying the FPCCR be realized

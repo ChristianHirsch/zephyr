@@ -28,11 +28,14 @@
 #include "lll_adv.h"
 #include "lll_scan.h"
 #include "lll_conn.h"
+#include "lll_internal.h"
 #include "lll_filter.h"
 
 #include "ull_adv_types.h"
 #include "ull_scan_types.h"
 #include "ull_conn_types.h"
+#include "ull_filter.h"
+
 #include "ull_adv_internal.h"
 #include "ull_scan_internal.h"
 #include "ull_conn_internal.h"
@@ -472,21 +475,21 @@ u8_t ll_adv_enable(u8_t enable)
 
 #if defined(CONFIG_BT_CTLR_PRIVACY)
 		/* Prepare whitelist and optionally resolving list */
-		ll_filters_adv_update(lll->filter_policy);
+		ull_filter_adv_update(lll->filter_policy);
 
 		if (adv->own_addr_type == BT_ADDR_LE_PUBLIC_ID ||
 		    adv->own_addr_type == BT_ADDR_LE_RANDOM_ID) {
 			/* Look up the resolving list */
-			rl_idx = ll_rl_find(adv->id_addr_type, adv->id_addr,
-					    NULL);
+			rl_idx = ull_filter_rl_find(adv->id_addr_type,
+						    adv->id_addr, NULL);
 
 			if (rl_idx != FILTER_IDX_NONE) {
 				/* Generate RPAs if required */
-				ll_rl_rpa_update(false);
+				ull_filter_rpa_update(false);
 			}
 
-			ll_rl_pdu_adv_update(adv, rl_idx, pdu_adv);
-			ll_rl_pdu_adv_update(adv, rl_idx, pdu_scan);
+			ull_filter_adv_pdu_update(adv, rl_idx, pdu_adv);
+			ull_filter_adv_pdu_update(adv, rl_idx, pdu_scan);
 			priv = true;
 		}
 #endif /* !CONFIG_BT_CTLR_PRIVACY */
@@ -562,11 +565,6 @@ u8_t ll_adv_enable(u8_t enable)
 		conn_lll->nesn = 0;
 		conn_lll->empty = 0;
 
-#if defined(CONFIG_BT_CTLR_LE_ENC)
-		conn_lll->enc_rx = 0;
-		conn_lll->enc_tx = 0;
-#endif /* CONFIG_BT_CTLR_LE_ENC */
-
 #if defined(CONFIG_BT_CTLR_DATA_LENGTH)
 		conn_lll->max_tx_octets = PDU_DC_PAYLOAD_SIZE_MIN;
 		conn_lll->max_rx_octets = PDU_DC_PAYLOAD_SIZE_MIN;
@@ -625,7 +623,10 @@ u8_t ll_adv_enable(u8_t enable)
 		conn->llcp_terminate.node_rx.hdr.link = link;
 
 #if defined(CONFIG_BT_CTLR_LE_ENC)
-		conn->pause_tx = conn->pause_rx = conn->refresh = 0;
+		conn_lll->enc_rx = conn_lll->enc_tx = 0U;
+		conn->llcp_enc.req = conn->llcp_enc.ack = 0U;
+		conn->llcp_enc.pause_tx = conn->llcp_enc.pause_rx = 0U;
+		conn->llcp_enc.refresh = 0U;
 #endif /* CONFIG_BT_CTLR_LE_ENC */
 
 #if defined(CONFIG_BT_CTLR_CONN_PARAM_REQ)
@@ -669,7 +670,7 @@ u8_t ll_adv_enable(u8_t enable)
 #endif /* CONFIG_BT_PERIPHERAL */
 
 #if defined(CONFIG_BT_CTLR_PRIVACY)
-	_radio.advertiser.rl_idx = rl_idx;
+	adv->rl_idx = rl_idx;
 #else
 	ARG_UNUSED(rl_idx);
 #endif /* CONFIG_BT_CTLR_PRIVACY */
@@ -859,11 +860,11 @@ u8_t ll_adv_enable(u8_t enable)
 	if (_radio.advertiser.is_mesh) {
 		_radio.scanner.is_enabled = 1;
 
-		ll_adv_scan_state_cb(BIT(0) | BIT(1));
+		ull_filter_adv_scan_state_cb(BIT(0) | BIT(1));
 	}
 #else /* !CONFIG_BT_HCI_MESH_EXT */
-	if (!ull_scan_is_enabled_get(0)) {
-		ll_adv_scan_state_cb(BIT(0));
+	if (IS_ENABLED(CONFIG_BT_OBSERVER) && !ull_scan_is_enabled_get(0)) {
+		ull_filter_adv_scan_state_cb(BIT(0));
 	}
 #endif /* !CONFIG_BT_HCI_MESH_EXT */
 #endif /* CONFIG_BT_CTLR_PRIVACY */
@@ -922,6 +923,11 @@ inline struct ll_adv_set *ull_adv_set_get(u16_t handle)
 inline u16_t ull_adv_handle_get(struct ll_adv_set *adv)
 {
 	return ((u8_t *)adv - (u8_t *)ll_adv) / sizeof(*adv);
+}
+
+u16_t ull_adv_lll_handle_get(struct lll_adv *lll)
+{
+	return ull_adv_handle_get((void *)lll->hdr.parent);
 }
 
 inline struct ll_adv_set *ull_adv_is_enabled_get(u16_t handle)
@@ -1016,7 +1022,7 @@ static void ticker_cb(u32_t ticks_at_expire, u32_t remainder, u16_t lazy,
 		u32_t random_delay;
 		u32_t ret;
 
-		ull_entropy_get(sizeof(random_delay), &random_delay);
+		lll_entropy_get(sizeof(random_delay), &random_delay);
 		random_delay %= HAL_TICKER_US_TO_TICKS(10000);
 		random_delay += 1;
 
@@ -1200,8 +1206,8 @@ static inline u8_t disable(u16_t handle)
 	adv->is_enabled = 0U;
 
 #if defined(CONFIG_BT_CTLR_PRIVACY)
-	if (!ull_scan_is_enabled_get(0)) {
-		ll_adv_scan_state_cb(0);
+	if (IS_ENABLED(CONFIG_BT_OBSERVER) && !ull_scan_is_enabled_get(0)) {
+		ull_filter_adv_scan_state_cb(0);
 	}
 #endif /* CONFIG_BT_CTLR_PRIVACY */
 

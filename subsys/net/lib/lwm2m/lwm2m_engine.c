@@ -31,7 +31,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <ctype.h>
 #include <errno.h>
 #include <init.h>
-#include <misc/printk.h>
+#include <sys/printk.h>
 #include <net/net_ip.h>
 #include <net/http_parser_url.h>
 #include <net/socket.h>
@@ -178,21 +178,19 @@ char *lwm2m_sprint_ip_addr(const struct sockaddr *addr)
 {
 	static char buf[NET_IPV6_ADDR_LEN];
 
-#if defined(CONFIG_NET_IPV6)
 	if (addr->sa_family == AF_INET6) {
 		return net_addr_ntop(AF_INET6, &net_sin6(addr)->sin6_addr,
 				     buf, sizeof(buf));
 	}
-#endif
-#if defined(CONFIG_NET_IPV4)
+
 	if (addr->sa_family == AF_INET) {
 		return net_addr_ntop(AF_INET, &net_sin(addr)->sin_addr,
 				     buf, sizeof(buf));
 	}
-#endif
 
 	LOG_ERR("Unknown IP address family:%d", addr->sa_family);
-	return NULL;
+	strcpy(buf, "unk");
+	return buf;
 }
 
 static u8_t to_hex_digit(u8_t digit)
@@ -301,7 +299,7 @@ get_block_ctx(const u8_t *token, u8_t tkl, struct block_context **ctx)
 		if (block1_contexts[i].tkl == tkl &&
 		    memcmp(token, block1_contexts[i].token, tkl) == 0) {
 			*ctx = &block1_contexts[i];
-			/* refresh timestmap */
+			/* refresh timestamp */
 			(*ctx)->timestamp = k_uptime_get();
 			break;
 		}
@@ -448,7 +446,8 @@ static int engine_add_observer(struct lwm2m_message *msg,
 			LOG_DBG("OBSERVER DUPLICATE %u/%u/%u(%u) [%s]",
 				msg->path.obj_id, msg->path.obj_inst_id,
 				msg->path.res_id, msg->path.level,
-				lwm2m_sprint_ip_addr(&msg->ctx->remote_addr));
+				log_strdup(
+				lwm2m_sprint_ip_addr(&msg->ctx->remote_addr)));
 
 			return 0;
 		}
@@ -548,8 +547,8 @@ static int engine_add_observer(struct lwm2m_message *msg,
 	LOG_DBG("OBSERVER ADDED %u/%u/%u(%u) token:'%s' addr:%s",
 		msg->path.obj_id, msg->path.obj_inst_id,
 		msg->path.res_id, msg->path.level,
-		sprint_token(token, tkl),
-		lwm2m_sprint_ip_addr(&msg->ctx->remote_addr));
+		log_strdup(sprint_token(token, tkl)),
+		log_strdup(lwm2m_sprint_ip_addr(&msg->ctx->remote_addr)));
 
 	return 0;
 }
@@ -582,7 +581,7 @@ static int engine_remove_observer(const u8_t *token, u8_t tkl)
 	sys_slist_remove(&engine_observer_list, prev_node, &found_obj->node);
 	(void)memset(found_obj, 0, sizeof(*found_obj));
 
-	LOG_DBG("observer '%s' removed", sprint_token(token, tkl));
+	LOG_DBG("observer '%s' removed", log_strdup(sprint_token(token, tkl)));
 
 	return 0;
 }
@@ -1313,7 +1312,7 @@ int lwm2m_engine_create_obj_inst(char *pathstr)
 	struct lwm2m_engine_obj_inst *obj_inst;
 	int ret = 0;
 
-	LOG_DBG("path:%s", pathstr);
+	LOG_DBG("path:%s", log_strdup(pathstr));
 
 	/* translate path -> path_obj */
 	ret = string_to_path(pathstr, &path, '/');
@@ -1372,7 +1371,7 @@ static int lwm2m_engine_set(char *pathstr, void *value, u16_t len)
 	int ret = 0;
 	bool changed = false;
 
-	LOG_DBG("path:%s, value:%p, len:%d", pathstr, value, len);
+	LOG_DBG("path:%s, value:%p, len:%d", log_strdup(pathstr), value, len);
 
 	/* translate path -> path_obj */
 	ret = string_to_path(pathstr, &path, '/');
@@ -1617,7 +1616,7 @@ static int lwm2m_engine_get(char *pathstr, void *buf, u16_t buflen)
 	void *data_ptr = NULL;
 	size_t data_len = 0;
 
-	LOG_DBG("path:%s, buf:%p, buflen:%d", pathstr, buf, buflen);
+	LOG_DBG("path:%s, buf:%p, buflen:%d", log_strdup(pathstr), buf, buflen);
 
 	/* translate path -> path_obj */
 	ret = string_to_path(pathstr, &path, '/');
@@ -2401,7 +2400,7 @@ static int lwm2m_write_attr_handler(struct lwm2m_engine_obj *obj,
 
 		if (ret < 0) {
 			LOG_ERR("invalid attr[%s] value",
-				LWM2M_ATTR_STR[type]);
+				log_strdup(LWM2M_ATTR_STR[type]));
 			/* bad request */
 			return -EEXIST;
 		}
@@ -2450,7 +2449,8 @@ static int lwm2m_write_attr_handler(struct lwm2m_engine_obj *obj,
 		type = attr->type;
 
 		if (!(BIT(type) & nattrs.flags)) {
-			LOG_DBG("Unset attr %s", LWM2M_ATTR_STR[type]);
+			LOG_DBG("Unset attr %s",
+				log_strdup(LWM2M_ATTR_STR[type]));
 			(void)memset(attr, 0, sizeof(*attr));
 
 			if (type <= LWM2M_ATTR_PMAX) {
@@ -2479,7 +2479,8 @@ static int lwm2m_write_attr_handler(struct lwm2m_engine_obj *obj,
 			       sizeof(float32_value_t));
 		}
 
-		LOG_DBG("Update %s to %d.%06d", LWM2M_ATTR_STR[type],
+		LOG_DBG("Update %s to %d.%06d",
+			log_strdup(LWM2M_ATTR_STR[type]),
 			attr->float_val.val1, attr->float_val.val2);
 	}
 
@@ -2513,7 +2514,7 @@ static int lwm2m_write_attr_handler(struct lwm2m_engine_obj *obj,
 		}
 
 		nattrs.flags &= ~BIT(type);
-		LOG_DBG("Add %s to %d.%06d", LWM2M_ATTR_STR[type],
+		LOG_DBG("Add %s to %d.%06d", log_strdup(LWM2M_ATTR_STR[type]),
 			attr->float_val.val1, attr->float_val.val2);
 	}
 
@@ -3470,7 +3471,7 @@ static void lwm2m_udp_receive(struct lwm2m_ctx *client_ctx,
 	}
 
 	LOG_DBG("checking for reply from [%s]",
-		lwm2m_sprint_ip_addr(from_addr));
+		log_strdup(lwm2m_sprint_ip_addr(from_addr)));
 	reply = coap_response_received(&response, from_addr,
 				       client_ctx->replies,
 				       CONFIG_LWM2M_ENGINE_MAX_REPLIES);
@@ -3607,7 +3608,7 @@ static int notify_message_reply_cb(const struct coap_packet *response,
 		type,
 		COAP_RESPONSE_CODE_CLASS(code),
 		COAP_RESPONSE_CODE_DETAIL(code),
-		sprint_token(reply->token, reply->tkl));
+		log_strdup(sprint_token(reply->token, reply->tkl)));
 
 	/* remove observer on COAP_TYPE_RESET */
 	if (type == COAP_TYPE_RESET) {
@@ -3652,8 +3653,8 @@ static int generate_notify_message(struct observe_node *obs,
 		obs->path.obj_inst_id,
 		obs->path.res_id,
 		obs->path.level,
-		sprint_token(obs->token, obs->tkl),
-		lwm2m_sprint_ip_addr(&obs->ctx->remote_addr),
+		log_strdup(sprint_token(obs->token, obs->tkl)),
+		log_strdup(lwm2m_sprint_ip_addr(&obs->ctx->remote_addr)),
 		k_uptime_get());
 
 	obj_inst = get_engine_obj_inst(obs->path.obj_id,
@@ -3792,7 +3793,7 @@ static int lwm2m_engine_service(void)
 		 * - current timestamp > last_timestamp + max_period_sec
 		 */
 		} else if (timestamp > obs->last_timestamp +
-				K_SECONDS(obs->min_period_sec)) {
+				K_SECONDS(obs->max_period_sec)) {
 			obs->last_timestamp = k_uptime_get();
 			generate_notify_message(obs, false);
 		}
@@ -3966,7 +3967,8 @@ static int load_tls_credential(struct lwm2m_ctx *client_ctx, u16_t res_id,
 
 	ret = lwm2m_engine_get_res_data(pathstr, &cred, &cred_len, &cred_flags);
 	if (ret < 0) {
-		LOG_ERR("Unable to get resource data for '%s'", pathstr);
+		LOG_ERR("Unable to get resource data for '%s'",
+			log_strdup(pathstr));
 		return ret;
 	}
 
@@ -3977,7 +3979,8 @@ static int load_tls_credential(struct lwm2m_ctx *client_ctx, u16_t res_id,
 
 	ret = tls_credential_add(client_ctx->tls_tag, type, cred, cred_len);
 	if (ret < 0) {
-		LOG_ERR("Unable to get resource data for '%s'", pathstr);
+		LOG_ERR("Error setting cred tag %d type %d: Error %d",
+			client_ctx->tls_tag, type, ret);
 	}
 
 	return ret;
@@ -3989,14 +3992,21 @@ int lwm2m_socket_start(struct lwm2m_ctx *client_ctx)
 #if defined(CONFIG_LWM2M_DTLS_SUPPORT)
 	int ret;
 
-	ret = load_tls_credential(client_ctx, 3, TLS_CREDENTIAL_PSK_ID);
-	if (ret < 0) {
-		return ret;
-	}
+	if (client_ctx->load_credentials) {
+		ret = client_ctx->load_credentials(client_ctx);
+		if (ret < 0) {
+			return ret;
+		}
+	} else {
+		ret = load_tls_credential(client_ctx, 3, TLS_CREDENTIAL_PSK_ID);
+		if (ret < 0) {
+			return ret;
+		}
 
-	ret = load_tls_credential(client_ctx, 5, TLS_CREDENTIAL_PSK);
-	if (ret < 0) {
-		return ret;
+		ret = load_tls_credential(client_ctx, 5, TLS_CREDENTIAL_PSK);
+		if (ret < 0) {
+			return ret;
+		}
 	}
 
 	if (client_ctx->use_dtls) {
@@ -4055,7 +4065,7 @@ int lwm2m_parse_peerinfo(char *url, struct sockaddr *addr, bool *use_dtls)
 	http_parser_url_init(&parser);
 	ret = http_parser_parse_url(url, strlen(url), 0, &parser);
 	if (ret < 0) {
-		LOG_ERR("Invalid url: %s", url);
+		LOG_ERR("Invalid url: %s", log_strdup(url));
 		return -ENOTSUP;
 	}
 
@@ -4093,21 +4103,15 @@ int lwm2m_parse_peerinfo(char *url, struct sockaddr *addr, bool *use_dtls)
 	(void)memset(addr, 0, sizeof(*addr));
 
 	/* try and set IP address directly */
-	ret = -EINVAL;
-
-#if defined(CONFIG_NET_IPV6)
 	addr->sa_family = AF_INET6;
 	ret = net_addr_pton(AF_INET6, url + off,
 			    &((struct sockaddr_in6 *)addr)->sin6_addr);
-#endif /* CONFIG_NET_IPV6 */
-
-#if defined(CONFIG_NET_IPV4)
+	/* Try to parse again using AF_INET */
 	if (ret < 0) {
 		addr->sa_family = AF_INET;
 		ret = net_addr_pton(AF_INET, url + off,
 				    &((struct sockaddr_in *)addr)->sin_addr);
 	}
-#endif /* CONFIG_NET_IPV4 */
 
 	if (ret < 0) {
 #if defined(CONFIG_DNS_RESOLVER)
@@ -4115,8 +4119,10 @@ int lwm2m_parse_peerinfo(char *url, struct sockaddr *addr, bool *use_dtls)
 		hints.ai_family = AF_UNSPEC;
 #elif defined(CONFIG_NET_IPV6)
 		hints.ai_family = AF_INET6;
-#else
+#elif defined(CONFIG_NET_IPV4)
 		hints.ai_family = AF_INET;
+#else
+		hints.ai_family = AF_UNSPEC;
 #endif /* defined(CONFIG_NET_IPV6) && defined(CONFIG_NET_IPV4) */
 		hints.ai_socktype = SOCK_DGRAM;
 		ret = getaddrinfo(url + off, NULL, &hints, &res);

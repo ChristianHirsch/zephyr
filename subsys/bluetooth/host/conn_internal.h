@@ -79,11 +79,18 @@ struct bt_conn_sco {
 };
 #endif
 
-typedef void (*bt_conn_tx_cb_t)(struct bt_conn *conn);
+typedef void (*bt_conn_tx_cb_t)(struct bt_conn *conn, void *user_data);
+
+struct bt_conn_tx_data {
+	bt_conn_tx_cb_t cb;
+	void *user_data;
+};
 
 struct bt_conn_tx {
 	sys_snode_t node;
-	bt_conn_tx_cb_t cb;
+	struct bt_conn *conn;
+	struct k_work work;
+	struct bt_conn_tx_data data;
 };
 
 struct bt_conn {
@@ -137,11 +144,11 @@ void bt_conn_recv(struct bt_conn *conn, struct net_buf *buf, u8_t flags);
 
 /* Send data over a connection */
 int bt_conn_send_cb(struct bt_conn *conn, struct net_buf *buf,
-		    bt_conn_tx_cb_t cb);
+		    bt_conn_tx_cb_t cb, void *user_data);
 
 static inline int bt_conn_send(struct bt_conn *conn, struct net_buf *buf)
 {
-	return bt_conn_send_cb(conn, buf, NULL);
+	return bt_conn_send_cb(conn, buf, NULL, NULL);
 }
 
 /* Add a new LE connection */
