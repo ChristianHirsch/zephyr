@@ -938,7 +938,7 @@ static void smp_br_distribute_keys(struct bt_smp_br *smp)
 		}
 
 		id_info = net_buf_add(buf, sizeof(*id_info));
-		memcpy(id_info->irk, bt_dev.irk, 16);
+		memcpy(id_info->irk, bt_dev.irk[conn->id], 16);
 
 		smp_br_send(smp, buf, NULL);
 
@@ -1828,7 +1828,7 @@ static void bt_smp_distribute_keys(struct bt_smp *smp)
 		}
 
 		id_info = net_buf_add(buf, sizeof(*id_info));
-		memcpy(id_info->irk, bt_dev.irk, 16);
+		memcpy(id_info->irk, bt_dev.irk[conn->id], 16);
 
 		smp_send(smp, buf, NULL, NULL);
 
@@ -2338,9 +2338,12 @@ static bool sec_level_reachable(struct bt_conn *conn)
 	case BT_SECURITY_MEDIUM:
 		return true;
 	case BT_SECURITY_HIGH:
-		return get_io_capa() != BT_SMP_IO_NO_INPUT_OUTPUT;
+		return get_io_capa() != BT_SMP_IO_NO_INPUT_OUTPUT ||
+		       (bt_auth && bt_auth->oob_data_request && oobd_present);
 	case BT_SECURITY_FIPS:
-		return get_io_capa() != BT_SMP_IO_NO_INPUT_OUTPUT &&
+		return (get_io_capa() != BT_SMP_IO_NO_INPUT_OUTPUT ||
+			(bt_auth && bt_auth->oob_data_request &&
+			 oobd_present)) &&
 		       sc_supported;
 	default:
 		return false;
@@ -2384,7 +2387,7 @@ int bt_smp_send_security_req(struct bt_conn *conn)
 	}
 
 	/* early verify if required sec level if reachable */
-	if (!sec_level_reachable(conn)) {
+	if (!(sec_level_reachable(conn) || bt_smp_keys_check(conn))) {
 		return -EINVAL;
 	}
 
@@ -2765,6 +2768,11 @@ static u8_t compute_and_send_master_dhcheck(struct bt_smp *smp)
 	case PASSKEY_INPUT:
 		memcpy(r, &smp->passkey, sizeof(smp->passkey));
 		break;
+	case LE_SC_OOB:
+		if (smp->oobd_remote) {
+			memcpy(r, smp->oobd_remote->r, sizeof(r));
+		}
+		break;
 	default:
 		return BT_SMP_ERR_UNSPECIFIED;
 	}
@@ -2923,6 +2931,8 @@ static u8_t sc_smp_check_confirm(struct bt_smp *smp)
 	u8_t r;
 
 	switch (smp->method) {
+	case LE_SC_OOB:
+		return 0;
 	case PASSKEY_CONFIRM:
 	case JUST_WORKS:
 		r = 0U;
@@ -2970,7 +2980,6 @@ static bool le_sc_oob_data_rsp_check(struct bt_smp *smp)
 	return ((rsp->oob_flag & BT_SMP_OOB_DATA_MASK) == BT_SMP_OOB_PRESENT);
 }
 
-#if defined(CONFIG_BT_PERIPHERAL)
 static void le_sc_oob_config_set(struct bt_smp *smp,
 				 struct bt_conn_oob_info *info)
 {
@@ -2978,7 +2987,17 @@ static void le_sc_oob_config_set(struct bt_smp *smp,
 	bool rsp_oob_present = le_sc_oob_data_rsp_check(smp);
 	int oob_config = BT_CONN_OOB_NO_DATA;
 
-	if (IS_ENABLED(CONFIG_BT_PERIPHERAL)) {
+	if (IS_ENABLED(CONFIG_BT_CENTRAL) &&
+	    smp->chan.chan.conn->role == BT_HCI_ROLE_MASTER) {
+		oob_config = req_oob_present ? BT_CONN_OOB_REMOTE_ONLY :
+					       BT_CONN_OOB_NO_DATA;
+
+		if (rsp_oob_present) {
+			oob_config = (oob_config == BT_CONN_OOB_REMOTE_ONLY) ?
+				     BT_CONN_OOB_BOTH_PEERS :
+				     BT_CONN_OOB_LOCAL_ONLY;
+		}
+	} else if (IS_ENABLED(CONFIG_BT_PERIPHERAL)) {
 		oob_config = req_oob_present ? BT_CONN_OOB_LOCAL_ONLY :
 					       BT_CONN_OOB_NO_DATA;
 
@@ -2991,7 +3010,6 @@ static void le_sc_oob_config_set(struct bt_smp *smp,
 
 	info->lesc.oob_config = oob_config;
 }
-#endif
 
 static u8_t smp_pairing_random(struct bt_smp *smp, struct net_buf *buf)
 {
@@ -3029,6 +3047,8 @@ static u8_t smp_pairing_random(struct bt_smp *smp, struct net_buf *buf)
 			bt_auth->passkey_confirm(smp->chan.chan.conn, passkey);
 			return 0;
 		case JUST_WORKS:
+			break;
+		case LE_SC_OOB:
 			break;
 		case PASSKEY_DISPLAY:
 		case PASSKEY_INPUT:
@@ -3101,7 +3121,7 @@ static u8_t smp_pairing_random(struct bt_smp *smp, struct net_buf *buf)
 			return BT_SMP_ERR_UNSPECIFIED;
 		}
 
-		if (bt_auth->oob_data_request) {
+		if (bt_auth && bt_auth->oob_data_request) {
 			struct bt_conn_oob_info info = {
 				.type = BT_CONN_OOB_LE_SC,
 				.lesc.oob_config = BT_CONN_OOB_NO_DATA,
@@ -3117,7 +3137,7 @@ static u8_t smp_pairing_random(struct bt_smp *smp, struct net_buf *buf)
 
 			return 0;
 		} else {
-			return BT_SMP_ERR_UNSPECIFIED;
+			return BT_SMP_ERR_OOB_NOT_AVAIL;
 		}
 	default:
 		return BT_SMP_ERR_UNSPECIFIED;
@@ -3505,6 +3525,31 @@ static u8_t smp_public_key(struct bt_smp *smp, struct net_buf *buf)
 			atomic_set_bit(smp->flags, SMP_FLAG_USER);
 			bt_auth->passkey_entry(smp->chan.chan.conn);
 			break;
+		case LE_SC_OOB:
+			/* Step 6: Select random N */
+			if (bt_rand(smp->prnd, 16)) {
+				return BT_SMP_ERR_UNSPECIFIED;
+			}
+
+			if (bt_auth && bt_auth->oob_data_request) {
+				struct bt_conn_oob_info info = {
+					.type = BT_CONN_OOB_LE_SC,
+					.lesc.oob_config = BT_CONN_OOB_NO_DATA,
+				};
+
+				le_sc_oob_config_set(smp, &info);
+
+				smp->oobd_local = NULL;
+				smp->oobd_remote = NULL;
+
+				atomic_set_bit(smp->flags,
+					       SMP_FLAG_OOB_PENDING);
+				bt_auth->oob_data_request(smp->chan.chan.conn,
+							  &info);
+			} else {
+				return BT_SMP_ERR_OOB_NOT_AVAIL;
+			}
+			break;
 		default:
 			return BT_SMP_ERR_UNSPECIFIED;
 		}
@@ -3547,6 +3592,11 @@ static u8_t smp_dhkey_check(struct bt_smp *smp, struct net_buf *buf)
 		case PASSKEY_DISPLAY:
 		case PASSKEY_INPUT:
 			memcpy(r, &smp->passkey, sizeof(smp->passkey));
+			break;
+		case LE_SC_OOB:
+			if (smp->oobd_local) {
+				memcpy(r, smp->oobd_local->r, sizeof(r));
+			}
 			break;
 		default:
 			return BT_SMP_ERR_UNSPECIFIED;
@@ -4491,7 +4541,13 @@ static bool le_sc_oob_data_check(struct bt_smp *smp, bool oobd_local_present,
 	bool req_oob_present = le_sc_oob_data_req_check(smp);
 	bool rsp_oob_present = le_sc_oob_data_rsp_check(smp);
 
-	if (IS_ENABLED(CONFIG_BT_PERIPHERAL)) {
+	if (IS_ENABLED(CONFIG_BT_CENTRAL) &&
+	    smp->chan.chan.conn->role == BT_HCI_ROLE_MASTER) {
+		if ((req_oob_present != oobd_remote_present) &&
+		    (rsp_oob_present != oobd_local_present)) {
+			return false;
+		}
+	} else if (IS_ENABLED(CONFIG_BT_PERIPHERAL)) {
 		if ((req_oob_present != oobd_local_present) &&
 		    (rsp_oob_present != oobd_remote_present)) {
 			return false;
@@ -4512,22 +4568,23 @@ static int le_sc_oob_pairing_continue(struct bt_smp *smp)
 			return err;
 		}
 
-		if (IS_ENABLED(CONFIG_BT_PERIPHERAL)) {
-			bool match = (memcmp(c, smp->oobd_remote->c,
-				sizeof(c)) == 0);
+		bool match = (memcmp(c, smp->oobd_remote->c, sizeof(c)) == 0);
 
-			if (!match) {
-				smp_error(smp, BT_SMP_ERR_CONFIRM_FAILED);
-				return 0;
-			}
+		if (!match) {
+			smp_error(smp, BT_SMP_ERR_CONFIRM_FAILED);
+			return 0;
 		}
 	}
 
-	if (IS_ENABLED(CONFIG_BT_PERIPHERAL)) {
+	if (IS_ENABLED(CONFIG_BT_CENTRAL) &&
+	    smp->chan.chan.conn->role == BT_HCI_ROLE_MASTER) {
+		atomic_set_bit(&smp->allowed_cmds, BT_SMP_CMD_PAIRING_RANDOM);
+	} else if (IS_ENABLED(CONFIG_BT_PERIPHERAL)) {
 		atomic_set_bit(&smp->allowed_cmds, BT_SMP_DHKEY_CHECK);
 		atomic_set_bit(smp->flags, SMP_FLAG_DHCHECK_WAIT);
-		smp_send_pairing_random(smp);
 	}
+
+	smp_send_pairing_random(smp);
 
 	return 0;
 }
@@ -4604,6 +4661,7 @@ int bt_smp_auth_cancel(struct bt_conn *conn)
 	case PASSKEY_CONFIRM:
 		return smp_error(smp, BT_SMP_ERR_CONFIRM_FAILED);
 	case LE_SC_OOB:
+		return smp_error(smp, BT_SMP_ERR_OOB_NOT_AVAIL);
 	case JUST_WORKS:
 		return smp_error(smp, BT_SMP_ERR_UNSPECIFIED);
 	default:
@@ -4786,6 +4844,38 @@ bool bt_smp_get_tk(struct bt_conn *conn, u8_t *tk)
 	memcpy(tk, smp->tk, enc_size);
 	if (enc_size < sizeof(smp->tk)) {
 		(void)memset(tk + enc_size, 0, sizeof(smp->tk) - enc_size);
+	}
+
+	return true;
+}
+
+bool bt_smp_keys_check(struct bt_conn *conn)
+{
+	if (!conn->le.keys) {
+		conn->le.keys = bt_keys_find(BT_KEYS_LTK_P256,
+						     conn->id, &conn->le.dst);
+		if (!conn->le.keys) {
+			conn->le.keys = bt_keys_find(BT_KEYS_LTK,
+						     conn->id,
+						     &conn->le.dst);
+		}
+	}
+
+	if (!conn->le.keys ||
+	    !(conn->le.keys->keys & (BT_KEYS_LTK | BT_KEYS_LTK_P256))) {
+		return false;
+	}
+
+	if (conn->required_sec_level > BT_SECURITY_MEDIUM &&
+	    !(conn->le.keys->flags & BT_KEYS_AUTHENTICATED)) {
+		return false;
+	}
+
+	if (conn->required_sec_level > BT_SECURITY_HIGH &&
+	    !(conn->le.keys->flags & BT_KEYS_AUTHENTICATED) &&
+	    !(conn->le.keys->keys & BT_KEYS_LTK_P256) &&
+	    !(conn->le.keys->enc_size == BT_SMP_MAX_ENC_KEY_SIZE)) {
+		return false;
 	}
 
 	return true;

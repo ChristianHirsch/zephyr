@@ -383,8 +383,6 @@ static int send_seg(struct bt_mesh_net_tx *net_tx, struct net_buf_simple *sdu,
 		net_buf_add_mem(seg, sdu->data, len);
 		net_buf_simple_pull(sdu, len);
 
-		tx->seg[seg_o] = net_buf_ref(seg);
-
 		if (IS_ENABLED(CONFIG_BT_MESH_FRIEND)) {
 			enum bt_mesh_friend_pdu_type type;
 
@@ -402,9 +400,11 @@ static int send_seg(struct bt_mesh_net_tx *net_tx, struct net_buf_simple *sdu,
 				 * out through the Friend Queue.
 				 */
 				net_buf_unref(seg);
-				return 0;
+				continue;
 			}
 		}
+
+		tx->seg[seg_o] = net_buf_ref(seg);
 
 		BT_DBG("Sending %u/%u", seg_o, tx->seg_n);
 
@@ -416,6 +416,17 @@ static int send_seg(struct bt_mesh_net_tx *net_tx, struct net_buf_simple *sdu,
 			seg_tx_reset(tx);
 			return err;
 		}
+	}
+
+	/* This can happen if segments only went into the Friend Queue */
+	if (IS_ENABLED(CONFIG_BT_MESH_FRIEND) && !tx->seg[0]) {
+		seg_tx_reset(tx);
+
+		/* If there was a callback notify sending immediately since
+		 * there's no other way to track this (at least currently)
+		 * with the Friend Queue.
+		 */
+		send_cb_finalize(cb, cb_data);
 	}
 
 	if (IS_ENABLED(CONFIG_BT_MESH_LOW_POWER) &&
@@ -1505,4 +1516,56 @@ void bt_mesh_rpl_clear(void)
 {
 	BT_DBG("");
 	(void)memset(bt_mesh.rpl, 0, sizeof(bt_mesh.rpl));
+}
+
+void bt_mesh_heartbeat_send(void)
+{
+	struct bt_mesh_cfg_srv *cfg = bt_mesh_cfg_get();
+	u16_t feat = 0U;
+	struct __packed {
+		u8_t  init_ttl;
+		u16_t feat;
+	} hb;
+	struct bt_mesh_msg_ctx ctx = {
+		.net_idx = cfg->hb_pub.net_idx,
+		.app_idx = BT_MESH_KEY_UNUSED,
+		.addr = cfg->hb_pub.dst,
+		.send_ttl = cfg->hb_pub.ttl,
+	};
+	struct bt_mesh_net_tx tx = {
+		.sub = bt_mesh_subnet_get(cfg->hb_pub.net_idx),
+		.ctx = &ctx,
+		.src = bt_mesh_model_elem(cfg->model)->addr,
+		.xmit = bt_mesh_net_transmit_get(),
+	};
+
+	/* Do nothing if heartbeat publication is not enabled */
+	if (cfg->hb_pub.dst == BT_MESH_ADDR_UNASSIGNED) {
+		return;
+	}
+
+	hb.init_ttl = cfg->hb_pub.ttl;
+
+	if (bt_mesh_relay_get() == BT_MESH_RELAY_ENABLED) {
+		feat |= BT_MESH_FEAT_RELAY;
+	}
+
+	if (bt_mesh_gatt_proxy_get() == BT_MESH_GATT_PROXY_ENABLED) {
+		feat |= BT_MESH_FEAT_PROXY;
+	}
+
+	if (bt_mesh_friend_get() == BT_MESH_FRIEND_ENABLED) {
+		feat |= BT_MESH_FEAT_FRIEND;
+	}
+
+	if (bt_mesh_lpn_established()) {
+		feat |= BT_MESH_FEAT_LOW_POWER;
+	}
+
+	hb.feat = sys_cpu_to_be16(feat);
+
+	BT_DBG("InitTTL %u feat 0x%04x", cfg->hb_pub.ttl, feat);
+
+	bt_mesh_ctl_send(&tx, TRANS_CTL_OP_HEARTBEAT, &hb, sizeof(hb),
+			 NULL, NULL, NULL);
 }
