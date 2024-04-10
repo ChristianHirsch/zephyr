@@ -1,0 +1,11 @@
+# Copyright (c) 2024 Research Studios Austria Forschungsgesellschaft mbH
+# SPDX-License-Identifier: Apache-2.0
+
+config MANCHESTER_GPIO
+	bool "GPIO bit banging Manchester support"
+	default y
+	depends on DT_HAS_GPIO_MANCHESTER_ENABLED
+	select MANCHESTER_BITBANG
+	help
+	  Enable software driven (bit banging) Manchester serial communication
+		support using GPIO pins

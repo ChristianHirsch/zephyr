@@ -1,0 +1,18 @@
+# Copyright (c) 2024 Research Studios Austria Forschungsgesellschaft mbH
+# SPDX-License-Identifier: Apache-2.0
+
+description: GPIO bitbanging Manchester support
+
+compatible: "gpio-manchester"
+
+include: manchester-controller.yaml
+
+properties:
+  rx-gpios:
+    type: phandle-array
+    required: true
+    description: GPIO to which the RX pin of the Manchester bus is connected.
+  tx-gpios:
+    type: phandle-array
+    required: true
+    description: GPIO to which the TX pin of the Manchester bus is connected.
