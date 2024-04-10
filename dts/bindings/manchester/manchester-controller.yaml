@@ -1,0 +1,8 @@
+# Copyright (c) 2024 Research Studios Austria Forschungsgesellschaft mbH
+# SPDX-License-Identifier: Apache-2.0
+
+# Common fields for Manchester controllers
+
+include: base.yaml
+
+bus: manchester

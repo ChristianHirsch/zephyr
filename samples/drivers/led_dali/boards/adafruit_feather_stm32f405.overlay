@@ -1,0 +1,12 @@
+/*
+ * Copyright (c) 2024 Research Studios Austria Forschungsgesellschaft mbH
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/ {
+	dali {
+		compatible = "gpio-dali";
+		rx-gpios = <&gpiob 11 GPIO_ACTIVE_LOW>;
+		tx-gpios = <&gpiob 10 GPIO_ACTIVE_LOW>;
+	};
+};
