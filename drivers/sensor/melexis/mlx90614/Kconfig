@@ -1,0 +1,12 @@
+# Copyright (c) 2025 Christian Hirsch <christian@hirsch.zone>
+# SPDX-License-Identifier: Apache-2.0
+
+
+config MLX90614
+	bool "MLX90614 IR thermometer"
+	default y
+	depends on DT_HAS_MELEXIS_MLX90614_ENABLED
+	select I2C
+	select CRC
+	help
+	  Enable driver for MLX90614 IR thermometer.
